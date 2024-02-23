@@ -21,7 +21,7 @@
 # General parameters
 #############################################################
 
-PROJECT_NAME = video_via_pynq
+PROJECT_NAME = kv260_rpicamera_to_dp
 # BD_TOP will be used by platform.tcl when building the top block design
 BD_TOP = bd_top
 FPGA_PART = XCK26-SFVC784-2LV-C
@@ -44,9 +44,7 @@ SRC_PATH 			= $(WORKSPACE_PATH)/rtl
 
 SRC_VHDL_FILES		+= $(SRC_PATH)/counter_wrapper.vhd # Cannot be VHDL 2008 as it is instantiated directly from Vivado IP integrator
 SRC_VHDL_FILES		+= $(SRC_PATH)/pwm.vhd # Cannot be VHDL 2008 as it is instantiated directly from Vivado IP integrator
-SRC_VHDL_FILES		+= $(SRC_PATH)/axis_video_pattern_generator_wrapper.vhd
 SRC_VHDL08_FILES 	+= $(SRC_PATH)/utils_pkg.vhd
-SRC_VHDL08_FILES	+= $(SRC_PATH)/axis_video_pattern_generator.vhd
 SRC_VERILOG_FILES 	+= $(SRC_PATH)/counter.v
 INC_VERILOG_FILES	+= $(SRC_PATH)/utils.v
 

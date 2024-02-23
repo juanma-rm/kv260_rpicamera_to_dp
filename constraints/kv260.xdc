@@ -24,11 +24,20 @@ set_property IOSTANDARD LVCMOS33 [get_ports pmod*]
 set_property SLEW SLOW [get_ports pmod*]
 set_property DRIVE 12 [get_ports pmod*]
 
-#################################################
+#################################################################################
 # Fan Speed Enable
-#################################################
+#################################################################################
 
 set_property PACKAGE_PIN A12 [get_ports {fan_en_b[0]}] ; # som240_1_c24
 set_property IOSTANDARD LVCMOS33 [get_ports {fan_en_b[0]}]
 set_property SLEW SLOW [get_ports {fan_en_b[0]}]
 set_property DRIVE 4 [get_ports {fan_en_b[0]}]
+
+#################################################################################
+# RPI camera
+#################################################################################
+
+set_property PACKAGE_PIN F11 [get_ports {rpi_cam_en}]
+set_property IOSTANDARD LVCMOS33 [get_ports {rpi_cam_en}]
+set_property SLEW SLOW [get_ports {rpi_cam_en}]
+set_property DRIVE 4 [get_ports {rpi_cam_en}]

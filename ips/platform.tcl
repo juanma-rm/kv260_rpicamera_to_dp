@@ -9,7 +9,7 @@
 ##############################################################################
 
 set PL0_CLK_FREQ_MHZ 100
-set PROJECT_NAME video_via_pynq
+set PROJECT_NAME kv260_rpicamera_to_dp
 set BD_TOP bd_top
 set EXTENSIBLE_PLATFORM true
 
@@ -48,14 +48,19 @@ set_property -dict [ list \
 set clk_wiz_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0 ]
 set_property -dict [ list \
     CONFIG.CLKOUT1_DRIVES {Buffer} \
-    CONFIG.CLKOUT1_JITTER {97.198} \
-    CONFIG.CLKOUT1_PHASE_ERROR {76.002} \
+    CONFIG.CLKOUT1_JITTER {115.831} \
+    CONFIG.CLKOUT1_PHASE_ERROR {87.180} \
     CONFIG.CLKOUT2_DRIVES {Buffer} \
-    CONFIG.CLKOUT2_JITTER {80.036} \
-    CONFIG.CLKOUT2_PHASE_ERROR {76.002} \
+    CONFIG.CLKOUT2_JITTER {94.862} \
+    CONFIG.CLKOUT2_PHASE_ERROR {87.180} \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {300.000} \
     CONFIG.CLKOUT2_USED {true} \
     CONFIG.CLKOUT3_DRIVES {Buffer} \
+    CONFIG.CLKOUT3_USED {true} \
+    CONFIG.CLK_OUT3_PORT {clk_200M} \
+    CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {200.000} \
+    CONFIG.CLKOUT3_JITTER {102.086} \
+    CONFIG.CLKOUT3_PHASE_ERROR {87.180} \
     CONFIG.CLKOUT4_DRIVES {Buffer} \
     CONFIG.CLKOUT5_DRIVES {Buffer} \
     CONFIG.CLKOUT6_DRIVES {Buffer} \
@@ -64,23 +69,24 @@ set_property -dict [ list \
     CONFIG.CLK_OUT2_PORT {clk_300M} \
     CONFIG.FEEDBACK_SOURCE {FDBK_AUTO} \
     CONFIG.MMCM_BANDWIDTH {OPTIMIZED} \
-    CONFIG.MMCM_CLKFBOUT_MULT_F {14.875} \
-    CONFIG.MMCM_CLKOUT0_DIVIDE_F {14.875} \
-    CONFIG.MMCM_CLKOUT1_DIVIDE {5} \
-    CONFIG.MMCM_CLKOUT2_DIVIDE {10} \
+    CONFIG.MMCM_CLKFBOUT_MULT_F {12.000} \
+    CONFIG.MMCM_CLKOUT0_DIVIDE_F {12.000} \
+    CONFIG.MMCM_CLKOUT1_DIVIDE {4} \
+    CONFIG.MMCM_CLKOUT2_DIVIDE {6} \
     CONFIG.MMCM_COMPENSATION {AUTO} \
     CONFIG.NUM_OUT_CLKS {3} \
     CONFIG.OPTIMIZE_CLOCKING_STRUCTURE_EN {true} \
     CONFIG.PRIMITIVE {Auto} \
     CONFIG.USE_LOCKED {false} \
     CONFIG.USE_RESET {false} \
-] $clk_wiz_0
+] [get_bd_cells clk_wiz_0]
 
 ##############################################################################
 # Reset blocks
 ##############################################################################
 
 set ps_reset_100M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_100M ]
+set ps_reset_200M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_200M ]
 set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_300M ]
 
 ##############################################################################
@@ -97,7 +103,7 @@ set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconc
 set axi_interc_hpm0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpm0 ]
 set_property -dict [ list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {2} \
+    CONFIG.NUM_MI {3} \
 ] $axi_interc_hpm0
 
 set axi_interc_hp0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hp0 ]
@@ -139,15 +145,28 @@ if {$FAN_CONTROL eq "ttc0_linux"} {
 set counter_wrapper [ create_bd_cell -type module -reference counter_wrapper counter_wrapper_inst ]
 
 ##############################################################################
-# Video: generator + VDMA
+# Video: MIPI RX + VDMA
 ##############################################################################
 
-# Video generator
-set axis_video_gen_wrapper_inst [ create_bd_cell -type module -reference axis_video_pattern_generator_wrapper axis_video_gen_wrapper_inst ]
+# Raspberry PI MIPI CSI interface
+set som240_1_connector_mipi_csi_raspi [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mipi_phy_rtl:1.0 som240_1_connector_mipi_csi_raspi ]
+
+# RPI enable + constant (1)
+set rpi_cam_en [ create_bd_port -dir O -from 0 -to 0 rpi_cam_en ]
+set constant_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 constant_1 ]
+set_property -dict [list \
+    CONFIG.CONST_WIDTH {1} \
+    CONFIG.CONST_VAL {1} \
+] [get_bd_cells constant_1]
+
+# MIPI CSI2 RX
+set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:5.1 mipi_csi2_rx_0 ]
 set_property -dict [ list \
-    CONFIG.NUM_COLS {1920} \
-    CONFIG.NUM_ROWS {1080} \
-] $axis_video_gen_wrapper_inst
+    CONFIG.CMN_NUM_PIXELS {2} \
+    CONFIG.DPHYRX_BOARD_INTERFACE {som240_1_connector_mipi_csi_raspi} \
+    CONFIG.SupportLevel {1} \
+    CONFIG.USE_BOARD_FLOW {true} \
+] $mipi_csi2_rx_0
 
 # AXI VDMA
 set axi_vdma_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0 ]
@@ -168,6 +187,7 @@ set pl_resetn0 [get_bd_pins $zynq_ultra_ps/pl_resetn0]
 # clk_wiz_0
 connect_bd_net $pl_clk0 [get_bd_pins clk_wiz_0/clk_in1] 
 set clk_100M [get_bd_pins clk_wiz_0/clk_100M]
+set clk_200M [get_bd_pins clk_wiz_0/clk_200M]
 set clk_300M [get_bd_pins clk_wiz_0/clk_300M]
 
 # ps_reset_100M
@@ -175,6 +195,12 @@ set rst_100M [get_bd_pins ps_reset_100M/peripheral_reset]
 set rstn_100M [get_bd_pins ps_reset_100M/peripheral_aresetn]
 connect_bd_net [get_bd_pins ps_reset_100M/slowest_sync_clk] $clk_100M
 connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_100M/ext_reset_in]
+
+# ps_reset_200M
+set rst_200M [get_bd_pins ps_reset_200M/peripheral_reset]
+set rstn_200M [get_bd_pins ps_reset_200M/peripheral_aresetn]
+connect_bd_net [get_bd_pins ps_reset_200M/slowest_sync_clk] $clk_200M
+connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_200M/ext_reset_in]
 
 # ps_reset_300M
 set rst_300M [get_bd_pins ps_reset_300M/peripheral_reset]
@@ -203,12 +229,18 @@ connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_in
 connect_bd_net [get_bd_pins axi_intc_0/irq] [get_bd_pins zynq_ultra_ps/pl_ps_irq0]
 connect_bd_net [get_bd_pins axi_intc_0/intr] [get_bd_pins xlconcat_0/dout] 
 
-# Video generator
-connect_bd_net [get_bd_pins axis_video_gen_wrapper_inst/clk_i] $clk_300M
-connect_bd_net [get_bd_pins axis_video_gen_wrapper_inst/rst_i] $rst_300M
-connect_bd_intf_net [get_bd_intf_pins axis_video_gen_wrapper_inst/m_axis_video] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
-# Avoid Vivado from complaining when connecting axis interfaces
-set_property CONFIG.FREQ_HZ 299997000 [get_bd_intf_pins /axis_video_gen_wrapper_inst/m_axis_video]
+# RPI enable set to 1
+connect_bd_net [get_bd_ports rpi_cam_en] [get_bd_pins constant_1/dout]
+
+# MIPI CSI RX
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aclk] $clk_300M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aresetn] $rstn_300M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/dphy_clk_200M] $clk_200M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aclk] $clk_300M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aresetn] $rstn_300M
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
+connect_bd_intf_net -intf_net som240_1_connector_mipi_csi_raspi_1 [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
 
 # AXI VDMA
 connect_bd_net [get_bd_pins axi_vdma_0/s_axi_lite_aclk] $clk_300M
@@ -269,6 +301,9 @@ assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs ax
 
 # PS memory map: how it sees AXI VDMA S_AXI_LITE
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
+
+# PS memory map: how it sees MIPI CSI RX AXI
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
 
 ##############################################################################
 # Regenerate layout and validate design
