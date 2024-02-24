@@ -29,7 +29,7 @@ BOARD_PART = xilinx.com:kv260_som:part0:1.3
 BOARD_CONNECTIONS = "som240_1_connector xilinx.com:kv260_carrier:som240_1_connector:1.3"
 SYN_NUM_JOBS = 12
 # EXTENSIBLE_PLATFORM = true for extensible platform (extensible xsa to integrate kernels on top of the platform) or false for standard platform (xsa including fixed bitstream, for baremetal workflow with Vitis)
-EXTENSIBLE_PLATFORM = false
+EXTENSIBLE_PLATFORM = true
 
 MAKEFILE_PATH := $(realpath $(lastword $(MAKEFILE_LIST)))
 WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..
@@ -64,13 +64,22 @@ IP_TCL_FILES 		= $(WORKSPACE_PATH)/ips/platform.tcl
 ###################################################################
 
 # Note: all targets are executed from within VIVADO_OUT_PATH folder, where the Vivado project will be generated
-VIVADO_OUT_PATH := $(WORKSPACE_PATH)/output/vivado # Warning! This folder will be removed each time make clean is done; careful with making this variable point to any folder containing important data
-VITIS_OUT_PATH := $(WORKSPACE_PATH)/output/vitis # Warning! This folder will be removed each time make clean is done; careful with making this variable point to any folder containing important data
+# Warning! This folders will be removed each time make clean is done; careful with making this variable point to any folder containing important data
+ARTIFACTS_OUT_PATH := $(WORKSPACE_PATH)/output/artifacts
+VIVADO_OUT_PATH := $(WORKSPACE_PATH)/output/vivado
+VITIS_OUT_PATH := $(WORKSPACE_PATH)/output/vitis
+DTBO_OUT_PATH := $(WORKSPACE_PATH)/output/dtbo
 
+ifeq ($(EXTENSIBLE_PLATFORM),false)
 all: xsa
+else
+all: xsa dtbo
+endif
 
 create_path:
+	mkdir -p $(ARTIFACTS_OUT_PATH)
 	mkdir -p $(VIVADO_OUT_PATH)
+	mkdir -p $(DTBO_OUT_PATH)
 
 vivado: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) vivado_gui
@@ -81,14 +90,19 @@ bit: create_path
 xsa: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).xsa
 
+dtbo: create_path
+	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).dtbo
+
 program: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) program_hw
 
 clean:
+	rm -rf $(ARTIFACTS_OUT_PATH)
 	rm -rf $(VIVADO_OUT_PATH)
 	rm -rf $(VITIS_OUT_PATH)
+	rm -rf $(DTBO_OUT_PATH)
 
-.PHONY: all vivado bit clean
+.PHONY: all clean
 
 ###################################################################
 # Target implementations
@@ -158,9 +172,9 @@ $(PROJECT_NAME).bit $(PROJECT_NAME).ltx: $(PROJECT_NAME).runs/impl_1/$(PROJECT_N
 	echo "write_bitstream -force $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit" >> generate_bit.tcl
 	echo "write_debug_probes -force $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx" >> generate_bit.tcl
 	vivado -nojournal -nolog -mode batch -source generate_bit.tcl
-	ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit .
-	if [ -e $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx ]; then ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx .; fi
-
+	ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
+	if [ -e $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx ]; then ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).ltx; fi
+	
 # Generate xsa
 
 ifeq ($(EXTENSIBLE_PLATFORM),false)
@@ -175,7 +189,8 @@ $(PROJECT_NAME).xsa:
 ifeq ($(EXTENSIBLE_PLATFORM),false)
 	# write_hw_platform expects bitstream name to be the same as top wrapper
 	cp $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(PROJECT_NAME).runs/impl_1/$(BD_TOP)_wrapper.bit
-	echo "write_hw_platform -fixed -include_bit -force -file $(PROJECT_NAME).xsa" >> generate_xsa.tcl
+	# ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(PROJECT_NAME).runs/impl_1/$(BD_TOP)_wrapper.bit
+	echo "write_hw_platform -fixed -include_bit -force -file $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" >> generate_xsa.tcl
 else
 	# Generate output products 
 	echo "delete_ip_run [get_files -of_objects [get_fileset sources_1] $(PROJECT_NAME).srcs/sources_1/bd/$(BD_TOP)/$(BD_TOP).bd]" >> generate_xsa.tcl
@@ -194,17 +209,34 @@ else
 	echo "set_property platform.design_intent.external_host {false} [current_project]" >> generate_xsa.tcl
 	echo "set_property platform.default_output_type {sd_card} [current_project]" >> generate_xsa.tcl
 	echo "set_property platform.uses_pr {false} [current_project]" >> generate_xsa.tcl
-	echo "write_hw_platform -hw -force -file $(PROJECT_NAME).xsa" >> generate_xsa.tcl
+	echo "write_hw_platform -hw -force -file $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" >> generate_xsa.tcl
 endif
 	# Run all previous commands
 	vivado -nojournal -nolog -mode batch -source generate_xsa.tcl
+
+# Generate device tree
+$(PROJECT_NAME).dtbo: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa
+	test -d device-tree-xlnx || git clone https://github.com/Xilinx/device-tree-xlnx && \
+	cd device-tree-xlnx && \
+	git checkout xlnx_rel_v2022.2
+
+	echo "hsi open_hw_design $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" > generate_dtsi.tcl
+	echo "hsi set_repo_path device-tree-xlnx" >> generate_dtsi.tcl
+	echo "hsi create_sw_design device-tree -os device_tree -proc psu_cortexa53_0" >> generate_dtsi.tcl
+	echo "hsi set_property CONFIG.dt_overlay true [hsi::get_os]" >> generate_dtsi.tcl
+	echo "hsi generate_target -dir ." >> generate_dtsi.tcl
+	echo "hsi close_hw_design $(BD_TOP)_wrapper" >> generate_dtsi.tcl
+	xsct -sdx generate_dtsi.tcl
+
+	dtc -@ -O dtb -o $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo ./pl.dtsi 
+
+	rm $(ARTIFACTS_OUT_PATH)/psu_*
 
 # Build a Vitis project
 vitis_proj: $(PROJECT_NAME).xsa
 	echo "platform create -name {$(PROJECT_NAME)} -hw {$(PROJECT_NAME).xsa} -proc {psu_cortexa53_0} -os {standalone} -arch {64-bit} -fsbl-target {psu_cortexa53_0} -out {vitis};platform write" > vitis_proj.tcl
 	echo "platform read {vitis/$(PROJECT_NAME)/platform.spr}" >> vitis_proj.tcl
 	echo "platform active {$(PROJECT_NAME)}" >> vitis_proj.tcl
-
 
 # Program the hardware
 program_hw: $(PROJECT_NAME).bit

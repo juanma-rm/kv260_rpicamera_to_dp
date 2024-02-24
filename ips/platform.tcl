@@ -334,7 +334,8 @@ if {$EXTENSIBLE_PLATFORM} {
     set_property platform.extensible true [current_project]
     set_property PFM.AXI_PORT {M_AXI_HPM0_FPD {memport "M_AXI_GP" sptag "" memory "" is_range "false"} M_AXI_HPM1_FPD {memport "M_AXI_GP" sptag "" memory "" is_range "false"} M_AXI_HPM0_LPD {memport "M_AXI_GP" sptag "" memory "" is_range "false"} S_AXI_HPC0_FPD {memport "S_AXI_HP" sptag "HPC0" memory "" is_range "false"} S_AXI_HPC1_FPD {memport "S_AXI_HP" sptag "HPC1" memory "" is_range "false"} S_AXI_HP0_FPD {memport "S_AXI_HP" sptag "HP0" memory "" is_range "false"} S_AXI_HP1_FPD {memport "S_AXI_HP" sptag "HP1" memory "" is_range "false"} S_AXI_HP2_FPD {memport "S_AXI_HP" sptag "HP2" memory "" is_range "false"} S_AXI_HP3_FPD {memport "S_AXI_HP" sptag "HP3" memory "" is_range "false"}} $zynq_ultra_ps
     # set_property PFM.AXI_PORT {M00_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M01_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"}  M02_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M03_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M04_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M05_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M06_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"} M07_AXI {memport "M_AXI_GP" sptag "" memory "" is_range "true"}} [get_bd_cells /smartconnect_1]
-    set_property PFM.CLOCK {pl_clk0 {id "0" is_default "true" proc_sys_reset "/proc_sys_reset" status "fixed" freq_hz "$(PL0_CLK_FREQ_MHZ)"}} $zynq_ultra_ps
+    set_property PFM.CLOCK {} [get_bd_cells /zynq_ultra_ps]
+    set_property PFM.CLOCK {clk_100M {id "1" is_default "true" proc_sys_reset "/ps_reset_100M" status "fixed" freq_hz "99999000"}} [get_bd_cells /clk_wiz_0]
     # set_property PFM.IRQ {In0 {is_range "true"} In1 {is_range "true"}} [get_bd_cells /xlconcat_0]
     set_property platform.vendor {vendor} [current_project]
     set_property platform.board_id {lib} [current_project]
