@@ -87,8 +87,14 @@ vivado: create_path
 bit: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).bit
 
+bitbin: create_path
+	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).bitbin
+
 xsa: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).xsa
+
+dtsi: create_path
+	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) pl.dtsi
 
 dtbo: create_path
 	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).dtbo
@@ -164,7 +170,7 @@ $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME)_routed: $(PROJECT_NAME).runs/synth_1
 	echo "report_utilization -hierarchical -file $(PROJECT_NAME)_utilization_hierarchical.rpt" >> run_impl.tcl
 	vivado -nojournal -nolog -mode batch -source run_impl.tcl
 
-# Bitstream
+# Bitstream (bit)
 $(PROJECT_NAME).bit $(PROJECT_NAME).ltx: $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME)_routed
 	rm -f $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit
 	echo "open_project $(PROJECT_NAME).xpr" > generate_bit.tcl
@@ -172,9 +178,14 @@ $(PROJECT_NAME).bit $(PROJECT_NAME).ltx: $(PROJECT_NAME).runs/impl_1/$(PROJECT_N
 	echo "write_bitstream -force $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit" >> generate_bit.tcl
 	echo "write_debug_probes -force $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx" >> generate_bit.tcl
 	vivado -nojournal -nolog -mode batch -source generate_bit.tcl
-	ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
-	if [ -e $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx ]; then ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).ltx; fi
-	
+	ln -f -s $(VIVADO_OUT_PATH)/$(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
+	if [ -e $(VIVADO_OUT_PATH)/$(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx ]; then ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).ltx; fi
+
+# Bitstream (bitbin)
+$(PROJECT_NAME).bitbin: $(PROJECT_NAME).bit
+	echo 'all:{$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit}' > bootgen.bif
+	bootgen -w -arch zynqmp -process_bitstream bin -image bootgen.bif
+
 # Generate xsa
 
 ifeq ($(EXTENSIBLE_PLATFORM),false)
@@ -215,10 +226,10 @@ endif
 	vivado -nojournal -nolog -mode batch -source generate_xsa.tcl
 
 # Generate device tree
-$(PROJECT_NAME).dtbo: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa
+pl.dtsi:
 	test -d device-tree-xlnx || git clone https://github.com/Xilinx/device-tree-xlnx && \
 	cd device-tree-xlnx && \
-	git checkout xlnx_rel_v2022.2
+	git checkout xlnx_rel_v2022.1
 
 	echo "hsi open_hw_design $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" > generate_dtsi.tcl
 	echo "hsi set_repo_path device-tree-xlnx" >> generate_dtsi.tcl
@@ -228,9 +239,12 @@ $(PROJECT_NAME).dtbo: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa
 	echo "hsi close_hw_design $(BD_TOP)_wrapper" >> generate_dtsi.tcl
 	xsct -sdx generate_dtsi.tcl
 
-	dtc -@ -O dtb -o $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo ./pl.dtsi 
-
 	rm $(ARTIFACTS_OUT_PATH)/psu_*
+	@/bin/bash -c 'read -p "Press Enter after manually modifying pl.dtsi modifying it as required (e.g. add board definitions such rpi iic)..."'
+
+# Compile device tree
+$(PROJECT_NAME).dtbo: pl.dtsi
+	dtc -@ -O dtb -o $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo ./pl.dtsi 
 
 # Build a Vitis project
 vitis_proj: $(PROJECT_NAME).xsa
