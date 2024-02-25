@@ -95,6 +95,9 @@ set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5
 
 set axi_intc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_intc:4.1 axi_intc_0 ]
 set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0 ]
+set_property -dict [ list \
+    CONFIG.NUM_PORTS {3} \
+] $xlconcat_0
 
 ##############################################################################
 # AXI Interconnects
@@ -103,7 +106,7 @@ set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconc
 set axi_interc_hpm0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpm0 ]
 set_property -dict [ list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {3} \
+    CONFIG.NUM_MI {4} \
 ] $axi_interc_hpm0
 
 set axi_interc_hp0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hp0 ]
@@ -147,6 +150,15 @@ set counter_wrapper [ create_bd_cell -type module -reference counter_wrapper cou
 ##############################################################################
 # Video: MIPI RX + VDMA
 ##############################################################################
+
+# Raspberry PI I2C + AXI_IIC IP
+set som240_1_connector_hda_iic_switch [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 som240_1_connector_hda_iic_switch ]
+set axi_iic_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic axi_iic_0 ]
+set_property -dict [ list \
+    CONFIG.IIC_BOARD_INTERFACE {som240_1_connector_hda_iic_switch} \
+    CONFIG.IIC_FREQ_KHZ {400} \
+    CONFIG.USE_BOARD_FLOW {true} \
+] $axi_iic_0
 
 # Raspberry PI MIPI CSI interface
 set som240_1_connector_mipi_csi_raspi [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mipi_phy_rtl:1.0 som240_1_connector_mipi_csi_raspi ]
@@ -229,6 +241,13 @@ connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_in
 connect_bd_net [get_bd_pins axi_intc_0/irq] [get_bd_pins zynq_ultra_ps/pl_ps_irq0]
 connect_bd_net [get_bd_pins axi_intc_0/intr] [get_bd_pins xlconcat_0/dout] 
 
+# RPI I2C
+connect_bd_net [get_bd_pins axi_iic_0/s_axi_aclk] $clk_300M
+connect_bd_net [get_bd_pins axi_iic_0/s_axi_aresetn] $rstn_300M
+connect_bd_net [get_bd_pins axi_iic_0/iic2intc_irpt] [get_bd_pins xlconcat_0/In2]
+connect_bd_intf_net -intf_net axi_iic_0_IIC [get_bd_intf_pins axi_iic_0/IIC] [get_bd_intf_ports som240_1_connector_hda_iic_switch]
+connect_bd_intf_net [get_bd_intf_pins axi_iic_0/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
+
 # RPI enable set to 1
 connect_bd_net [get_bd_ports rpi_cam_en] [get_bd_pins constant_1/dout]
 
@@ -304,6 +323,9 @@ assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs ax
 
 # PS memory map: how it sees MIPI CSI RX AXI
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
+
+# PS memory map: how it sees AXI IIC
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_iic_0/S_AXI/Reg] -force
 
 ##############################################################################
 # Regenerate layout and validate design
