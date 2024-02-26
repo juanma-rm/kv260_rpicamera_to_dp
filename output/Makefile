@@ -28,8 +28,24 @@ FPGA_PART = XCK26-SFVC784-2LV-C
 BOARD_PART = xilinx.com:kv260_som:part0:1.3
 BOARD_CONNECTIONS = "som240_1_connector xilinx.com:kv260_carrier:som240_1_connector:1.3"
 SYN_NUM_JOBS = 12
-# EXTENSIBLE_PLATFORM = true for extensible platform (extensible xsa to integrate kernels on top of the platform) or false for standard platform (xsa including fixed bitstream, for baremetal workflow with Vitis)
-EXTENSIBLE_PLATFORM = true
+
+# DEV_FLOW values are:
+# - vivado: only-HW-based workflow
+#	- required input: 1) FPGA RTL/IP/constraints files
+#	- output files:  1) a bit file
+# - vitis_standalone: Vitis/standalone-based workflow (no extensible to extra kernels)
+#	- required input: 1) FPGA RTL/IP/constraints files
+#	- intermediate files: 1) bit file
+#	- output files: 1) an xsa file containing the bitstream
+# - vivado_accelerator: Vivado Accelerator workflow (xmutil or dfx-mgr, no extensible to extra kernels) (https://xilinx.github.io/kria-apps-docs/creating_applications/2022.1/build/html/docs/vivado_accel_flow.html)
+#	- required input: 1) FPGA RTL/IP/constraints files
+#	- intermediate files: 1) non-extensisble xsa file
+#	- output files:  1) a bitbin file and 2) a dtbo file
+# - vitis_platform: Vitis platform workflow (xmutil or dfx-mgr, extensible to extra kernels) (https://xilinx.github.io/kria-apps-docs/creating_applications/2022.1/build/html/docs/vitis_platform_flow.html)
+#	- required input: 1) FPGA RTL/IP/constraints files and 2) at least one kernel (Vivado IP and xo)
+# 	- intermediate files: 1) extensible xsa file
+# 	- output files:  1) an xclbin, 2) a dtbo file and 3) a json file
+DEV_FLOW = vivado_accelerator
 
 MAKEFILE_PATH := $(realpath $(lastword $(MAKEFILE_LIST)))
 WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..
@@ -70,10 +86,17 @@ VIVADO_OUT_PATH := $(WORKSPACE_PATH)/output/vivado
 VITIS_OUT_PATH := $(WORKSPACE_PATH)/output/vitis
 DTBO_OUT_PATH := $(WORKSPACE_PATH)/output/dtbo
 
-ifeq ($(EXTENSIBLE_PLATFORM),false)
-all: xsa
+ifeq ($(DEV_FLOW),vivado)
+all: bit
+else ifeq ($(DEV_FLOW),vitis_standalone)
+all: xsa_non_extensible
+else ifeq ($(DEV_FLOW),vivado_accelerator)
+all: bitbin xsa_non_extensible dtbo
+else ifeq ($(DEV_FLOW),vitis_platform)
+# all: xsa_extensible dtbo # @todo pending to add procedure to generate xclbin from xsa + kernel.xo
+$(error Unsupported value for DEV_FLOW: $(DEV_FLOW). This mode is not supported yet)$(eval EXITCODE = 1)
 else
-all: xsa dtbo
+$(error Unsupported value for DEV_FLOW: $(DEV_FLOW). Valid values are 'vivado', 'vitis_standalone', 'vivado_accelerator', 'vitis_platform')$(eval EXITCODE = 1)
 endif
 
 create_path:
@@ -85,13 +108,16 @@ vivado: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) vivado_gui
 
 bit: create_path
-	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).bit
+	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/
 
 bitbin: create_path
-	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).bitbin
+	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bitbin
 
-xsa: create_path
-	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).xsa
+xsa_non_extensible: create_path
+	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/xsa_non_ext
+
+xsa_extensible: create_path
+	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/xsa_ext
 
 dtsi: create_path
 	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) pl.dtsi
@@ -117,6 +143,8 @@ clean:
 # Create Vivado project, add all files, etc.
 
 create_project.tcl: $(MAKEFILE_PATH) $(SRC_VHDL_FILES) $(SRC_VHDL08_FILES) $(SRC_VERILOG_FILES) $(INC_VERILOG_FILES) $(XDC_FILES) $(IP_TCL_FILES) $(IP_XCI_FILES)
+
+	@echo "\n\n\n ----------------- Creating Vivado project... ----------------- \n\n\n: $@"
 
 	# Create project
 	echo "create_project -force -part $(FPGA_PART) $(PROJECT_NAME)" > $@
@@ -151,16 +179,16 @@ $(PROJECT_NAME).xpr: create_project.tcl
 vivado_gui: $(PROJECT_NAME).xpr
 	vivado $(PROJECT_NAME).xpr
 
-# Synthesis
-$(PROJECT_NAME).runs/synth_1/$(PROJECT_NAME): $(PROJECT_NAME).xpr
+# Bitstream (bit)
+$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).ltx: $(PROJECT_NAME).xpr
+	@echo "\n\n\n ----------------- Running synthesis... ----------------- \n\n\n: $@"
 	echo "open_project $(PROJECT_NAME).xpr" > run_synth.tcl
 	echo "reset_run synth_1" >> run_synth.tcl
 	echo "launch_runs -jobs $(SYN_NUM_JOBS) synth_1" >> run_synth.tcl
 	echo "wait_on_run synth_1" >> run_synth.tcl
 	vivado -nojournal -nolog -mode batch -source run_synth.tcl
 
-# Implementation
-$(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME)_routed: $(PROJECT_NAME).runs/synth_1/$(PROJECT_NAME)
+	@echo "\n\n\n ----------------- Running implementation... ----------------- \n\n\n: $@"
 	echo "open_project $(PROJECT_NAME).xpr" > run_impl.tcl
 	echo "reset_run impl_1" >> run_impl.tcl
 	echo "launch_runs -jobs $(SYN_NUM_JOBS) impl_1" >> run_impl.tcl
@@ -170,8 +198,7 @@ $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME)_routed: $(PROJECT_NAME).runs/synth_1
 	echo "report_utilization -hierarchical -file $(PROJECT_NAME)_utilization_hierarchical.rpt" >> run_impl.tcl
 	vivado -nojournal -nolog -mode batch -source run_impl.tcl
 
-# Bitstream (bit)
-$(PROJECT_NAME).bit $(PROJECT_NAME).ltx: $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME)_routed
+	@echo "\n\n\n ----------------- Generating bin file... ----------------- \n\n\n: $@"
 	rm -f $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit
 	echo "open_project $(PROJECT_NAME).xpr" > generate_bit.tcl
 	echo "open_run impl_1" >> generate_bit.tcl
@@ -182,27 +209,27 @@ $(PROJECT_NAME).bit $(PROJECT_NAME).ltx: $(PROJECT_NAME).runs/impl_1/$(PROJECT_N
 	if [ -e $(VIVADO_OUT_PATH)/$(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx ]; then ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).ltx $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).ltx; fi
 
 # Bitstream (bitbin)
-$(PROJECT_NAME).bitbin: $(PROJECT_NAME).bit
+$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bitbin: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
+	@echo "\n\n\n ----------------- Generating bitbin file... ----------------- \n\n\n: $@"
 	echo 'all:{$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit}' > bootgen.bif
 	bootgen -w -arch zynqmp -process_bitstream bin -image bootgen.bif
 
-# Generate xsa
-
-ifeq ($(EXTENSIBLE_PLATFORM),false)
-$(PROJECT_NAME).xsa: $(PROJECT_NAME).bit
-else
-$(PROJECT_NAME).xsa: $(PROJECT_NAME).xpr
-endif
-
-$(PROJECT_NAME).xsa:
+# Generate non-extensible xsa
+$(ARTIFACTS_OUT_PATH)/xsa_non_ext: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
+	@echo "\n\n\n ----------------- Generating non-extensible xsa file... ----------------- \n\n\n: $@"
 	# Open project
 	echo "open_project $(PROJECT_NAME).xpr" > generate_xsa.tcl
-ifeq ($(EXTENSIBLE_PLATFORM),false)
 	# write_hw_platform expects bitstream name to be the same as top wrapper
 	cp $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(PROJECT_NAME).runs/impl_1/$(BD_TOP)_wrapper.bit
-	# ln -f -s $(PROJECT_NAME).runs/impl_1/$(PROJECT_NAME).bit $(PROJECT_NAME).runs/impl_1/$(BD_TOP)_wrapper.bit
 	echo "write_hw_platform -fixed -include_bit -force -file $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" >> generate_xsa.tcl
-else
+	# Run all previous commands
+	vivado -nojournal -nolog -mode batch -source generate_xsa.tcl
+
+# Generate extensible xsa
+$(ARTIFACTS_OUT_PATH)/xsa_ext: $(PROJECT_NAME).xpr
+	@echo "\n\n\n ----------------- Generating extensible xsa file... ----------------- \n\n\n: $@"
+	# Open project
+	echo "open_project $(PROJECT_NAME).xpr" > generate_xsa.tcl
 	# Generate output products 
 	echo "delete_ip_run [get_files -of_objects [get_fileset sources_1] $(PROJECT_NAME).srcs/sources_1/bd/$(BD_TOP)/$(BD_TOP).bd]" >> generate_xsa.tcl
 	echo "set_property synth_checkpoint_mode None [get_files $(PROJECT_NAME).srcs/sources_1/bd/$(BD_TOP)/$(BD_TOP).bd]" >> generate_xsa.tcl
@@ -221,7 +248,6 @@ else
 	echo "set_property platform.default_output_type {sd_card} [current_project]" >> generate_xsa.tcl
 	echo "set_property platform.uses_pr {false} [current_project]" >> generate_xsa.tcl
 	echo "write_hw_platform -hw -force -file $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa" >> generate_xsa.tcl
-endif
 	# Run all previous commands
 	vivado -nojournal -nolog -mode batch -source generate_xsa.tcl
 
@@ -253,13 +279,13 @@ vitis_proj: $(PROJECT_NAME).xsa
 	echo "platform active {$(PROJECT_NAME)}" >> vitis_proj.tcl
 
 # Program the hardware
-program_hw: $(PROJECT_NAME).bit
+program_hw: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
 	echo "open_hw_manager" > program.tcl
 	echo "connect_hw_server" >> program.tcl
 	echo "open_hw_target" >> program.tcl
 	echo "current_hw_device [lindex [get_hw_devices] 0]" >> program.tcl
 	echo "refresh_hw_device -update_hw_probes false [current_hw_device]" >> program.tcl
-	echo "set_property PROGRAM.FILE {$(PROJECT_NAME).bit} [current_hw_device]" >> program.tcl
+	echo "set_property PROGRAM.FILE {$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit} [current_hw_device]" >> program.tcl
 	echo "program_hw_devices [current_hw_device]" >> program.tcl
 	echo "exit" >> program.tcl
 	vivado -nojournal -nolog -mode batch -source program.tcl
