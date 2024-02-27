@@ -44,8 +44,8 @@ SYN_NUM_JOBS = 12
 # - vitis_platform: Vitis platform workflow (xmutil or dfx-mgr, extensible to extra kernels) (https://xilinx.github.io/kria-apps-docs/creating_applications/2022.1/build/html/docs/vitis_platform_flow.html)
 #	- required input: 1) FPGA RTL/IP/constraints files and 2) at least one kernel (Vivado IP and xo)
 # 	- intermediate files: 1) extensible xsa file
-# 	- output files:  1) an xclbin, 2) a dtbo file and 3) a json file
-DEV_FLOW = vivado_accelerator
+# 	- output files:  1) a bitbin file (xclbin just changing extension), 2) a dtbo file and 3) a json file
+DEV_FLOW = vitis_platform
 
 MAKEFILE_PATH := $(realpath $(lastword $(MAKEFILE_LIST)))
 WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..
@@ -73,7 +73,11 @@ XDC_FILES 			= $(WORKSPACE_PATH)/constraints/kv260.xdc
 IP_TCL_FILES 		= $(WORKSPACE_PATH)/ips/platform.tcl
 # IP_XCI_FILES 		= 
 
-# Misc
+# xpfm + kernel
+PFM_TCL_PATH		= $(WORKSPACE_PATH)/common/pfm.tcl
+KERNEL_NAME 		= my_ip
+KERNEL_SRC_PATH 	= $(WORKSPACE_PATH)/kernels
+LINK_INPUT_PATH		= $(WORKSPACE_PATH)/kernels/my_ip.xo
 
 ###################################################################
 # Main Targets
@@ -85,6 +89,7 @@ ARTIFACTS_OUT_PATH := $(WORKSPACE_PATH)/output/artifacts
 VIVADO_OUT_PATH := $(WORKSPACE_PATH)/output/vivado
 VITIS_OUT_PATH := $(WORKSPACE_PATH)/output/vitis
 DTBO_OUT_PATH := $(WORKSPACE_PATH)/output/dtbo
+XPFM_OUT_PATH := $(WORKSPACE_PATH)/output/xpfm
 
 ifeq ($(DEV_FLOW),vivado)
 all: bit
@@ -93,8 +98,7 @@ all: xsa_non_extensible
 else ifeq ($(DEV_FLOW),vivado_accelerator)
 all: bitbin xsa_non_extensible dtbo
 else ifeq ($(DEV_FLOW),vitis_platform)
-# all: xsa_extensible dtbo # @todo pending to add procedure to generate xclbin from xsa + kernel.xo
-$(error Unsupported value for DEV_FLOW: $(DEV_FLOW). This mode is not supported yet)$(eval EXITCODE = 1)
+all: xsa_extensible dtbo xclbin
 else
 $(error Unsupported value for DEV_FLOW: $(DEV_FLOW). Valid values are 'vivado', 'vitis_standalone', 'vivado_accelerator', 'vitis_platform')$(eval EXITCODE = 1)
 endif
@@ -103,6 +107,7 @@ create_path:
 	mkdir -p $(ARTIFACTS_OUT_PATH)
 	mkdir -p $(VIVADO_OUT_PATH)
 	mkdir -p $(DTBO_OUT_PATH)
+	mkdir -p $(XPFM_OUT_PATH)
 
 vivado: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) vivado_gui
@@ -123,7 +128,10 @@ dtsi: create_path
 	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) pl.dtsi
 
 dtbo: create_path
-	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) $(PROJECT_NAME).dtbo
+	$(MAKE) -C $(DTBO_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo
+
+xclbin: create_path
+	$(MAKE) -C $(XPFM_OUT_PATH) -f $(MAKEFILE_PATH) $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xclbin
 
 program: create_path
 	$(MAKE) -C $(VIVADO_OUT_PATH) -f $(MAKEFILE_PATH) program_hw
@@ -133,6 +141,7 @@ clean:
 	rm -rf $(VIVADO_OUT_PATH)
 	rm -rf $(VITIS_OUT_PATH)
 	rm -rf $(DTBO_OUT_PATH)
+	rm -rf $(XPFM_OUT_PATH)
 
 .PHONY: all clean
 
@@ -164,7 +173,9 @@ create_project.tcl: $(MAKEFILE_PATH) $(SRC_VHDL_FILES) $(SRC_VHDL08_FILES) $(SRC
 	echo "add_files -fileset sources_1 defines.v" >> $@
 
 	# Import source files as copies (required if using v++, otherwise v++ process would complain about missing sources)
-	# echo "import_files -norecurse $(SYN_FILES_REL)" >> $@
+ifeq ($(DEV_FLOW),vitis_platform)
+	echo "import_files -norecurse $(SYN_FILES_REL)" >> $@
+endif
 
 	# Constraints
 	echo "add_files -fileset constrs_1 $(XDC_FILES)" >> $@
@@ -253,6 +264,7 @@ $(ARTIFACTS_OUT_PATH)/xsa_ext: $(PROJECT_NAME).xpr
 
 # Generate device tree
 pl.dtsi:
+	@echo "\n\n\n ----------------- Creating pl.dtsi... ----------------- \n\n\n: $@"
 	test -d device-tree-xlnx || git clone https://github.com/Xilinx/device-tree-xlnx && \
 	cd device-tree-xlnx && \
 	git checkout xlnx_rel_v2022.1
@@ -269,17 +281,32 @@ pl.dtsi:
 	@/bin/bash -c 'read -p "Press Enter after manually modifying pl.dtsi modifying it as required (e.g. add board definitions such rpi iic)..."'
 
 # Compile device tree
-$(PROJECT_NAME).dtbo: pl.dtsi
+$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo: pl.dtsi
+	@echo "\n\n\n ----------------- Generating dtbo... ----------------- \n\n\n: $@"
 	dtc -@ -O dtb -o $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo ./pl.dtsi 
+
+# generate xpfm
+$(PROJECT_NAME).xpfm:
+	@echo "\n\n\n ----------------- Generating xpfm... ----------------- \n\n\n: $@"
+	xsct -sdx $(PFM_TCL_PATH) -xsa  $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xsa
+	ln -f -s xsct/$(PROJECT_NAME)/$(PROJECT_NAME)/export/$(PROJECT_NAME)/$(PROJECT_NAME).xpfm .
+
+# generate xclbin / bitbin
+$(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).xclbin: $(PROJECT_NAME).xpfm
+	@echo "\n\n\n ----------------- Generating xclbin... ----------------- \n\n\n: $@"
+	v++ -l --save-temps -t hw --platform xsct/$(PROJECT_NAME)/$(PROJECT_NAME)/export/$(PROJECT_NAME)/$(PROJECT_NAME).xpfm -k $(KERNEL_NAME) --temp_dir ./temp/ -o ./$(PROJECT_NAME).xclbin -I $(KERNEL_SRC_PATH) $(LINK_INPUT_PATH)
+	mv ./$(PROJECT_NAME).xclbin $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit.bin
 
 # Build a Vitis project
 vitis_proj: $(PROJECT_NAME).xsa
+	@echo "\n\n\n ----------------- Creating Vitis project... ----------------- \n\n\n: $@"
 	echo "platform create -name {$(PROJECT_NAME)} -hw {$(PROJECT_NAME).xsa} -proc {psu_cortexa53_0} -os {standalone} -arch {64-bit} -fsbl-target {psu_cortexa53_0} -out {vitis};platform write" > vitis_proj.tcl
 	echo "platform read {vitis/$(PROJECT_NAME)/platform.spr}" >> vitis_proj.tcl
 	echo "platform active {$(PROJECT_NAME)}" >> vitis_proj.tcl
 
 # Program the hardware
 program_hw: $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).bit
+	@echo "\n\n\n ----------------- Programming FPGA... ----------------- \n\n\n: $@"
 	echo "open_hw_manager" > program.tcl
 	echo "connect_hw_server" >> program.tcl
 	echo "open_hw_target" >> program.tcl
