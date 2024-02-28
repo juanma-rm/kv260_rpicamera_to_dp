@@ -96,9 +96,9 @@ all: bit
 else ifeq ($(DEV_FLOW),vitis_standalone)
 all: xsa_non_extensible
 else ifeq ($(DEV_FLOW),vivado_accelerator)
-all: bitbin xsa_non_extensible dtbo
+all: bitbin xsa_non_extensible dtbo shell.json
 else ifeq ($(DEV_FLOW),vitis_platform)
-all: xsa_extensible dtbo xclbin
+all: xsa_extensible dtbo xclbin shell.json
 else
 $(error Unsupported value for DEV_FLOW: $(DEV_FLOW). Valid values are 'vivado', 'vitis_standalone', 'vivado_accelerator', 'vitis_platform')$(eval EXITCODE = 1)
 endif
@@ -284,6 +284,12 @@ pl.dtsi:
 $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo: pl.dtsi
 	@echo "\n\n\n ----------------- Generating dtbo... ----------------- \n\n\n: $@"
 	dtc -@ -O dtb -o $(ARTIFACTS_OUT_PATH)/$(PROJECT_NAME).dtbo ./pl.dtsi 
+
+# Copy shell file required by xmutil
+shell.json:
+	cp $(WORKSPACE_PATH)/common/shell.json $(ARTIFACTS_OUT_PATH)/
+	rm $(ARTIFACTS_OUT_PATH)/*.bit
+	rm $(ARTIFACTS_OUT_PATH)/*.xsa
 
 # generate xpfm
 $(PROJECT_NAME).xpfm:
