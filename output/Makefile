@@ -273,6 +273,7 @@ pl.dtsi:
 	echo "hsi set_repo_path device-tree-xlnx" >> generate_dtsi.tcl
 	echo "hsi create_sw_design device-tree -os device_tree -proc psu_cortexa53_0" >> generate_dtsi.tcl
 	echo "hsi set_property CONFIG.dt_overlay true [hsi::get_os]" >> generate_dtsi.tcl
+	# echo "hsi set_property CONFIG.dt_zocl true [hsi::get_os]" >> generate_dtsi.tcl
 	echo "hsi generate_target -dir ." >> generate_dtsi.tcl
 	echo "hsi close_hw_design $(BD_TOP)_wrapper" >> generate_dtsi.tcl
 	xsct -sdx generate_dtsi.tcl
