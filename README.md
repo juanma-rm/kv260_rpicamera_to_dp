@@ -58,15 +58,15 @@ make vivado # build the Vivado project and opens it from Vivado GUI. Parameters 
 
 See `output/Makefile` and `ips/platform.tcl` for more details about usage and parameters.
 
-**Software: Ubuntu and Pynq**:
+**Software: standalone**:
 
 Vitis Project:
 
 - From Vitis IDE, build a platform project based on the xsa generated from the previous step (under `output/artifacts`).
 - On top of that platform, build a standalone application project for the A53 core based on Empty C template.
 - Import the sources from sw/set_up_video_pipeline to the application project.
-- Modify VIDEO_MODE_CONFIG in config.h to match the video mode used.
-- Note: the original dpdma example of Xilinx can be generated from the platform as shown below, clicking "Import Examples":
+- Modify VIDEO_MODE_CONFIG in parameters.h to match the video mode used.
+- Build the project and upload it into the KV260.
 
 The camera video shall now be displayed at the external screen.
 
