@@ -39,6 +39,7 @@ From the processor perspective, a standalone application running on the APU is i
 - [AMD KV260](https://www.xilinx.com/products/som/kria/kv260-vision-starter-kit.html)
 - External monitor
 - HDMI or DisplayPort cable connecting the external monitor and the KV260.
+- Raspberry PI Camera rev 1.3 (OV5647)
 
 ## Usage <a id="Usage"></a>
 
