@@ -13,24 +13,15 @@
 
 ## About the project <a id="About-The-Project"></a>
 
-Having generated video from the PL and forwarded it to the video output in the AMD KV260 platform, the next step is to find a way to make the same work when Ubuntu is running on the PS side. In standalone, I had a simple application running on the A53 that configured the Display Port (DP) and its DMA to enable the Live video input (coming from the PL) in the DP controller.
+The `KV260` platform comes with a `MIPI CSI` port to connect a Raspberry Pi camera. This project focuses on interfacing one of those cameras and forward its video stream all the way up to the video output (HDMI). In particular, a `OV5647` sensor (featured by the `Raspberry PI camera rev 1.3`) is used.
 
-As a first approach, I researched how to perform a configuration similar to the one that I did in standalone but this time from Ubuntu. Unfortunately, I could not find a way to port that baremetal example. Looking into the AMD examples for KV260, I found that the hardware architecture in aibox-reid application is based on the DP Live video input; the software seems to use GStreamer and modetest. I tried reproducing that application from Ubuntu 22.04 running on my KR260 but could not make it (it seems to be intended for Petalinux since doing `modetest -M xlnx` reported
-`failed to open device 'xlnx': No such file or directory`). If someone knows a way to make it work from Ubuntu and shares it, I would really appreciate it. In any case, I will jump into Petalinux eventually.
-
-As an alternative straightforward solution, I decided to avoid the DP Live video interface and use Pynq from Ubuntu to forward the video frames generated in the PL towards the video output. This is not efficient at all due to the longer path to go from PL to DP (having to go through the APU) and also to the fact of having a non-real-time OS + Python interpreter just forwarding data; however, it is more than enough for the moment.
+<img src="pics/hw_setup.png" alt="block_design" width="600">
 
 ## Hardware design <a id="Hardware-Design"></a>
 
-From the FPGA perspective, the Vivado design now does not make usage of DP live interface. Instead, the video generator AXIS output is now received by an `AXI Video DMA or  VDMA` connected to the Processing System (PS) memory via two memory-mapped AXI interfaces (one to send data to the PS memory and one to request data from the PS memory; only the former is used). A general AXI DMA is able to move data between AXIS and AXI devices; the AXI VDMA in particular is intended to move video data as it is intended to work with video frames. This VDMA will forward video frames to the processor uppon request from the latter.
+From the FPGA perspective, the RPI camera interface is connected to a `MIPI CSI-2 RX` block. The output stream goes through a `demosaic` IP (to convert the camera RAW format into RGB) and then a `gamma lut` IP. Then, it is forwarded by a `VDMA` to a `AXIS to Video` IP to finally reach the video out through the `Display Port controller` (external to the PL).
 
-A diagram of the general interconnection system in the Zynq Ultrascale+ is shown below:
-
-<img src="pics/zynq_mpsoc_diagram.png" alt="zynq_mpsoc_diagram" width="1000">
-
-The video frames flow from the video generator in the FPGA to the main processor through DDR (orange arrows), operation that is performed by the VDMA when requested by the processor (green arrows representing the path followed by those control commands). This is highlighted below:
-
-<img src="pics/zynq_mpsoc_diagram_2.png" alt="zynq_mpsoc_diagram_2" width="1000">
+The `PS-PL I2C interface` must be enabled so that the sensor can be initialised from the PS.
 
 The resulting Vivado block diagram is shown below.
 
@@ -38,7 +29,7 @@ The resulting Vivado block diagram is shown below.
 
 ## Software design <a id="Software-design"></a>
 
-From the processor perspective, it now runs Ubuntu 22.04, on top of which I use Pynq to ease the PL-PS interaction. The software tasks are simple: 1) configure the DisplayPort (DP) channel and the AXI VDMA implemented in the PL and 2) perform requests to the VDMA to bring frames one by one from the PL, forwarding each to the DP.
+From the processor perspective, a standalone application running on the APU is in charge of initialising all the IPs, including the OV5647 image sensor (via I2C).
 
 ## Prerequisites <a id="Prerequisites"></a>
 
@@ -53,7 +44,7 @@ From the processor perspective, it now runs Ubuntu 22.04, on top of which I use 
 
 **Vivado Project: configuration**:
 
-Configure the video resolution of the video generator through the `rtl/axis_video_pattern_generator_wrapper.vhd` parameters (originally set up to 1080p).
+The video output is configured to work at 1080p@60fps (with a clock running at 148.5 MHz). Different video modes might need some changes.
 
 **Vivado Project: build the project and generate bitstream and xsa platform file**:
 
@@ -68,28 +59,15 @@ See `output/Makefile` and `ips/platform.tcl` for more details about usage and pa
 
 **Software: Ubuntu and Pynq**:
 
-1) Set up the KV260 with Ubuntu as explained [here](https://www.xilinx.com/products/som/kria/kv260-vision-starter-kit/kv260-getting-started-ubuntu/setting-up-the-sd-card-image.html)
+Vitis Project:
 
-2) Install Pynq from Ubuntu running on the KV260:
-```
-git clone https://github.com/Xilinx/Kria-PYNQ.git
-cd Kria-PYNQ/
-sudo bash install.sh -b KV260
-```
+- From Vitis IDE, build a platform project based on the xsa generated from the previous step (under `output/artifacts`).
+- On top of that platform, build a standalone application project for the A53 core based on Empty C template.
+- Import the sources from sw/set_up_video_pipeline to the application project.
+- Modify VIDEO_MODE_CONFIG in config.h to match the video mode used.
+- Note: the original dpdma example of Xilinx can be generated from the platform as shown below, clicking "Import Examples":
 
-3) Copy `sw/video_forwarder.py` and the `xsa` file generated from Vivado in the previous step to the kv260. Update path to xsa in the python script if they are not located under the same path. In `video_forwarder.py`, configure the video resolution by modifying `Video Mode` of `vdma` and `displayport` as required (originally set up to 1080p). 
-
-4) Run the script as follows:
-
-```
-sudo su
-source /etc/profile.d/pynq_venv.sh
-python3 video_forwarder.py
-```
-
-The video generator output should appear now in the external screen:
-
-<img src="pics/custom_video_generator.gif" alt="custom_video_generator" width="500">
+The camera video shall now be displayed at the external screen.
 
 ## References <a id="References"></a>
 
@@ -102,7 +80,10 @@ The video generator output should appear now in the external screen:
 - [Kria K26 SOM Data Sheet(DS987)](https://docs.xilinx.com/r/en-US/ds987-k26-som/Overview)
 - [AMD Video Series and Blog Posts](https://support.xilinx.com/s/question/0D52E00006hpsS0SAI/xilinx-video-series-and-blog-posts?language=en_US)
 - [AMD AXI VDMA documentation](https://docs.xilinx.com/r/en-US/pg020_axi_vdma)
-- [Pynq documentation](https://pynq.readthedocs.io/en/v2.1/getting_started.html)
+- [OV5647 datasheet](https://cdn.sparkfun.com/datasheets/Dev/RaspberryPi/ov5647_full.pdf)
+- [OV5647 source code of driver for Linux](https://github.com/torvalds/linux/blob/master/drivers/media/i2c/ov5647.c)
+- [Project for KV260 (FPGA + baremetal), Raspberry Pi camera (Omnivision OV5640) to DisplayPort via DP Live interface. By Adam Taylor](https://www.adiuvoengineering.com/post/microzed-chronicles-kria-raspberry-pi-camera)
+- [Project for KV260 and Ultra96v2 (FPGA + baremetal), Raspberry Pi camera (imx219) to DisplayPort via DP Live interface. By gtaylormb](https://github.com/gtaylormb/ultra96v2_imx219_to_displayport)
 
 ## Contact <a id="Contact"></a>
 
