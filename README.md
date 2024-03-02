@@ -1,4 +1,4 @@
-# Forwarding the video to the DP output with Ubuntu running on the PS
+# Forwarding the Raspberry PI camera stream through the PL to the DP output with a standalone application on the PS
 
 ## Table of contents
 <ol>
