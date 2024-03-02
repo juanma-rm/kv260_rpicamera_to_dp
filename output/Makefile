@@ -45,7 +45,7 @@ SYN_NUM_JOBS = 12
 #	- required input: 1) FPGA RTL/IP/constraints files and 2) at least one kernel (Vivado IP and xo)
 # 	- intermediate files: 1) extensible xsa file
 # 	- output files:  1) a bitbin file (xclbin just changing extension), 2) a dtbo file and 3) a json file
-DEV_FLOW = vitis_platform
+DEV_FLOW = vitis_standalone
 
 MAKEFILE_PATH := $(realpath $(lastword $(MAKEFILE_LIST)))
 WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..

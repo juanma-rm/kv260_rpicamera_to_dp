@@ -11,7 +11,7 @@
 set PL0_CLK_FREQ_MHZ 100
 set PROJECT_NAME kv260_rpicamera_to_dp
 set BD_TOP bd_top
-set EXTENSIBLE_PLATFORM true
+set EXTENSIBLE_PLATFORM false
 
 # Select FAN_CONTROL value among the following options
 set fan_control_type {ttc0_linux counter_fpga default}
@@ -38,7 +38,9 @@ set_property -dict [ list \
     CONFIG.PSU__TTC0__PERIPHERAL__ENABLE {1}                     \
     CONFIG.PSU__TTC0__WAVEOUT__ENABLE {1}                        \
     CONFIG.PSU__TTC0__WAVEOUT__IO {EMIO}                         \
-    CONFIG.PSU__USE__VIDEO {0}                                   \
+    CONFIG.PSU__USE__VIDEO {1}                                   \
+    CONFIG.PSU__I2C1__PERIPHERAL__ENABLE {1}                     \
+    CONFIG.PSU__I2C1__PERIPHERAL__IO {EMIO}                      \
 ] $zynq_ultra_ps
 
 ##############################################################################
@@ -47,38 +49,39 @@ set_property -dict [ list \
 
 set clk_wiz_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0 ]
 set_property -dict [ list \
-    CONFIG.CLKOUT1_DRIVES {Buffer} \
-    CONFIG.CLKOUT1_JITTER {115.831} \
-    CONFIG.CLKOUT1_PHASE_ERROR {87.180} \
-    CONFIG.CLKOUT2_DRIVES {Buffer} \
-    CONFIG.CLKOUT2_JITTER {94.862} \
-    CONFIG.CLKOUT2_PHASE_ERROR {87.180} \
-    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {300.000} \
+    CONFIG.PRIMITIVE {Auto} \
     CONFIG.CLKOUT2_USED {true} \
-    CONFIG.CLKOUT3_DRIVES {Buffer} \
     CONFIG.CLKOUT3_USED {true} \
+    CONFIG.CLK_OUT1_PORT {clk_100M} \
+    CONFIG.CLK_OUT2_PORT {clk_148_5M} \
     CONFIG.CLK_OUT3_PORT {clk_200M} \
+    CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {148.500} \
     CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {200.000} \
-    CONFIG.CLKOUT3_JITTER {102.086} \
-    CONFIG.CLKOUT3_PHASE_ERROR {87.180} \
+    CONFIG.OPTIMIZE_CLOCKING_STRUCTURE_EN {true} \
+    CONFIG.CLKOUT1_DRIVES {Buffer} \
+    CONFIG.CLKOUT2_DRIVES {Buffer} \
+    CONFIG.CLKOUT3_DRIVES {Buffer} \
     CONFIG.CLKOUT4_DRIVES {Buffer} \
     CONFIG.CLKOUT5_DRIVES {Buffer} \
     CONFIG.CLKOUT6_DRIVES {Buffer} \
     CONFIG.CLKOUT7_DRIVES {Buffer} \
-    CONFIG.CLK_OUT1_PORT {clk_100M} \
-    CONFIG.CLK_OUT2_PORT {clk_300M} \
     CONFIG.FEEDBACK_SOURCE {FDBK_AUTO} \
-    CONFIG.MMCM_BANDWIDTH {OPTIMIZED} \
-    CONFIG.MMCM_CLKFBOUT_MULT_F {12.000} \
-    CONFIG.MMCM_CLKOUT0_DIVIDE_F {12.000} \
-    CONFIG.MMCM_CLKOUT1_DIVIDE {4} \
-    CONFIG.MMCM_CLKOUT2_DIVIDE {6} \
-    CONFIG.MMCM_COMPENSATION {AUTO} \
-    CONFIG.NUM_OUT_CLKS {3} \
-    CONFIG.OPTIMIZE_CLOCKING_STRUCTURE_EN {true} \
-    CONFIG.PRIMITIVE {Auto} \
     CONFIG.USE_LOCKED {false} \
     CONFIG.USE_RESET {false} \
+    CONFIG.MMCM_BANDWIDTH {OPTIMIZED} \
+    CONFIG.MMCM_CLKFBOUT_MULT_F {11.875} \
+    CONFIG.MMCM_COMPENSATION {AUTO} \
+    CONFIG.MMCM_CLKOUT0_DIVIDE_F {11.875} \
+    CONFIG.MMCM_CLKOUT1_DIVIDE {8} \
+    CONFIG.MMCM_CLKOUT2_DIVIDE {6} \
+    CONFIG.NUM_OUT_CLKS {3} \
+    CONFIG.CLKOUT1_JITTER {116.395} \
+    CONFIG.CLKOUT1_PHASE_ERROR {87.467} \
+    CONFIG.CLKOUT2_JITTER {108.255} \
+    CONFIG.CLKOUT2_PHASE_ERROR {87.467} \
+    CONFIG.CLKOUT3_JITTER {102.708} \
+    CONFIG.CLKOUT3_PHASE_ERROR {87.467} \
+    CONFIG.AUTO_PRIMITIVE {MMCM} \
 ] [get_bd_cells clk_wiz_0]
 
 ##############################################################################
@@ -86,8 +89,8 @@ set_property -dict [ list \
 ##############################################################################
 
 set ps_reset_100M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_100M ]
+set ps_reset_148_5M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_148_5M ]
 set ps_reset_200M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_200M ]
-set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_300M ]
 
 ##############################################################################
 # Interrupts (xlconcat)
@@ -106,7 +109,7 @@ set_property -dict [ list \
 set axi_interc_hpm0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpm0 ]
 set_property -dict [ list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {4} \
+    CONFIG.NUM_MI {6} \
 ] $axi_interc_hpm0
 
 set axi_interc_hp0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hp0 ]
@@ -152,19 +155,19 @@ set counter_wrapper [ create_bd_cell -type module -reference counter_wrapper cou
 ##############################################################################
 
 # Raspberry PI I2C + AXI_IIC IP
-set som240_1_connector_hda_iic_switch [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 som240_1_connector_hda_iic_switch ]
-set axi_iic_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic axi_iic_0 ]
-set_property -dict [ list \
-    CONFIG.IIC_BOARD_INTERFACE {som240_1_connector_hda_iic_switch} \
-    CONFIG.IIC_FREQ_KHZ {400} \
-    CONFIG.USE_BOARD_FLOW {true} \
-] $axi_iic_0
+set IIC_1_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 IIC_1_0 ]
+# set axi_iic_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic axi_iic_0 ]
+# set_property -dict [ list \
+#     CONFIG.IIC_BOARD_INTERFACE {IIC_1_0} \
+#     CONFIG.IIC_FREQ_KHZ {400} \
+#     CONFIG.USE_BOARD_FLOW {true} \
+# ] $axi_iic_0
 
 # Raspberry PI MIPI CSI interface
 set som240_1_connector_mipi_csi_raspi [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mipi_phy_rtl:1.0 som240_1_connector_mipi_csi_raspi ]
 
 # RPI enable + constant (1)
-set rpi_cam_en [ create_bd_port -dir O -from 0 -to 0 rpi_cam_en ]
+set rpi_cam_en [ create_bd_port -dir O -from 0 -to 0 -type ce rpi_cam_en ]
 set constant_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 constant_1 ]
 set_property -dict [list \
     CONFIG.CONST_WIDTH {1} \
@@ -174,18 +177,96 @@ set_property -dict [list \
 # MIPI CSI2 RX
 set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:5.1 mipi_csi2_rx_0 ]
 set_property -dict [ list \
-    CONFIG.CMN_NUM_PIXELS {2} \
+    CONFIG.AXIS_TDEST_WIDTH {4} \
+    CONFIG.CLK_LANE_IO_LOC {D7} \
+    CONFIG.CLK_LANE_IO_LOC_NAME {IO_L13P_T2L_N0_GC_QBC_66} \
+    CONFIG.CMN_NUM_LANES {2} \
+    CONFIG.CMN_NUM_PIXELS {1} \
+    CONFIG.CMN_PXL_FORMAT {RAW10} \
+    CONFIG.CSI_BUF_DEPTH {4096} \
+    CONFIG.C_CLK_LANE_IO_POSITION {26} \
+    CONFIG.C_CSI_EN_CRC {false} \
+    CONFIG.C_CSI_FILTER_USERDATATYPE {false} \
+    CONFIG.C_DATA_LANE0_IO_POSITION {28} \
+    CONFIG.C_DATA_LANE1_IO_POSITION {30} \
+    CONFIG.C_DPHY_LANES {2} \
+    CONFIG.C_EN_BG0_PIN0 {false} \
+    CONFIG.C_EN_BG1_PIN0 {false} \
+    CONFIG.C_HS_LINE_RATE {912} \
+    CONFIG.C_HS_SETTLE_NS {145} \
+    CONFIG.C_STRETCH_LINE_RATE {1500} \
+    CONFIG.DATA_LANE0_IO_LOC {E5} \
+    CONFIG.DATA_LANE0_IO_LOC_NAME {IO_L14P_T2L_N2_GC_66} \
+    CONFIG.DATA_LANE1_IO_LOC {G6} \
+    CONFIG.DATA_LANE1_IO_LOC_NAME {IO_L15P_T2L_N4_AD11P_66} \
     CONFIG.DPHYRX_BOARD_INTERFACE {som240_1_connector_mipi_csi_raspi} \
+    CONFIG.DPY_EN_REG_IF {false} \
+    CONFIG.DPY_LINE_RATE {912} \
+    CONFIG.HP_IO_BANK_SELECTION {66} \
     CONFIG.SupportLevel {1} \
-    CONFIG.USE_BOARD_FLOW {true} \
+    CONFIG.VFB_TU_WIDTH {1} \
 ] $mipi_csi2_rx_0
+
+# Video Demosaic
+set v_demosaic_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_demosaic:1.1 v_demosaic_0 ]
+set_property -dict [ list \
+    CONFIG.MAX_COLS {1920} \
+    CONFIG.MAX_DATA_WIDTH {10} \
+    CONFIG.MAX_ROWS {1080} \
+    CONFIG.SAMPLES_PER_CLOCK {1} \
+] $v_demosaic_0
+
+# Video Gamma LUT
+set v_gamma_lut_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_gamma_lut:1.1 v_gamma_lut_0 ]
+set_property -dict [ list \
+    CONFIG.MAX_COLS {1920} \
+    CONFIG.MAX_DATA_WIDTH {10} \
+    CONFIG.MAX_ROWS {1080} \
+] $v_gamma_lut_0
+
+# Video Timing Controller
+set v_tc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_tc:6.2 v_tc_0 ]
+set_property -dict [ list \
+   CONFIG.GEN_F0_VBLANK_HEND {2008} \
+   CONFIG.GEN_F0_VBLANK_HSTART {2008} \
+   CONFIG.GEN_F0_VFRAME_SIZE {1125} \
+   CONFIG.GEN_F0_VSYNC_HEND {2008} \
+   CONFIG.GEN_F0_VSYNC_HSTART {2008} \
+   CONFIG.GEN_F0_VSYNC_VEND {1088} \
+   CONFIG.GEN_F0_VSYNC_VSTART {1083} \
+   CONFIG.GEN_F1_VBLANK_HEND {2008} \
+   CONFIG.GEN_F1_VBLANK_HSTART {2008} \
+   CONFIG.GEN_F1_VFRAME_SIZE {1125} \
+   CONFIG.GEN_F1_VSYNC_HEND {2008} \
+   CONFIG.GEN_F1_VSYNC_HSTART {2008} \
+   CONFIG.GEN_F1_VSYNC_VEND {1088} \
+   CONFIG.GEN_F1_VSYNC_VSTART {1083} \
+   CONFIG.GEN_HACTIVE_SIZE {1920} \
+   CONFIG.GEN_HFRAME_SIZE {2200} \
+   CONFIG.GEN_HSYNC_END {2052} \
+   CONFIG.GEN_HSYNC_START {2008} \
+   CONFIG.GEN_VACTIVE_SIZE {1080} \
+   CONFIG.VIDEO_MODE {1080p} \
+   CONFIG.enable_detection {false} \
+] $v_tc_0
 
 # AXI VDMA
 set axi_vdma_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0 ]
 set_property -dict [ list \
-    CONFIG.c_s2mm_linebuffer_depth {2048} \
-    CONFIG.c_s2mm_max_burst_length {128} \
+   CONFIG.c_include_mm2s_dre {1} \
+   CONFIG.c_include_s2mm_dre {1} \
+   CONFIG.c_mm2s_linebuffer_depth {4096} \
+   CONFIG.c_s2mm_linebuffer_depth {4096} \
 ] $axi_vdma_0
+
+# Video AXIS out
+set v_axi4s_vid_out_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_axi4s_vid_out:4.0 v_axi4s_vid_out_0 ]
+set_property -dict [ list \
+    CONFIG.C_HAS_ASYNC_CLK {1} \
+    CONFIG.C_NATIVE_COMPONENT_WIDTH {12} \
+    CONFIG.C_PIXELS_PER_CLOCK {1} \
+    CONFIG.C_S_AXIS_VIDEO_DATA_WIDTH {10} \
+] $v_axi4s_vid_out_0
 
 ##############################################################################
 # Connections
@@ -199,8 +280,8 @@ set pl_resetn0 [get_bd_pins $zynq_ultra_ps/pl_resetn0]
 # clk_wiz_0
 connect_bd_net $pl_clk0 [get_bd_pins clk_wiz_0/clk_in1] 
 set clk_100M [get_bd_pins clk_wiz_0/clk_100M]
+set clk_148_5M [get_bd_pins clk_wiz_0/clk_148_5M]
 set clk_200M [get_bd_pins clk_wiz_0/clk_200M]
-set clk_300M [get_bd_pins clk_wiz_0/clk_300M]
 
 # ps_reset_100M
 set rst_100M [get_bd_pins ps_reset_100M/peripheral_reset]
@@ -208,71 +289,111 @@ set rstn_100M [get_bd_pins ps_reset_100M/peripheral_aresetn]
 connect_bd_net [get_bd_pins ps_reset_100M/slowest_sync_clk] $clk_100M
 connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_100M/ext_reset_in]
 
+# ps_reset_148_5M
+set rst_148_5M [get_bd_pins ps_reset_148_5M/peripheral_reset]
+set rstn_148_5M [get_bd_pins ps_reset_148_5M/peripheral_aresetn]
+connect_bd_net [get_bd_pins ps_reset_148_5M/slowest_sync_clk] $clk_148_5M
+connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_148_5M/ext_reset_in]
+
 # ps_reset_200M
 set rst_200M [get_bd_pins ps_reset_200M/peripheral_reset]
 set rstn_200M [get_bd_pins ps_reset_200M/peripheral_aresetn]
 connect_bd_net [get_bd_pins ps_reset_200M/slowest_sync_clk] $clk_200M
 connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_200M/ext_reset_in]
 
-# ps_reset_300M
-set rst_300M [get_bd_pins ps_reset_300M/peripheral_reset]
-set rstn_300M [get_bd_pins ps_reset_300M/peripheral_aresetn]
-connect_bd_net [get_bd_pins ps_reset_300M/slowest_sync_clk] $clk_300M
-connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_300M/ext_reset_in]
-
 # zynq ultrascale
-connect_bd_net $clk_300M [get_bd_pins zynq_ultra_ps/maxihpm0_fpd_aclk]
-connect_bd_net $clk_300M [get_bd_pins zynq_ultra_ps/saxihp0_fpd_aclk]
+connect_bd_net $clk_200M [get_bd_pins zynq_ultra_ps/maxihpm0_fpd_aclk]
+connect_bd_net $clk_200M [get_bd_pins zynq_ultra_ps/saxihp0_fpd_aclk]
+connect_bd_net $clk_148_5M [get_bd_pins zynq_ultra_ps/dp_video_in_clk]
 
 # axi_interc_hp0
-connect_bd_net [get_bd_pins axi_interc_hp0/aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_interc_hp0/aresetn] $rstn_300M
+connect_bd_net [get_bd_pins axi_interc_hp0/aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_interc_hp0/aresetn] $rstn_200M
 connect_bd_intf_net [get_bd_intf_pins zynq_ultra_ps/S_AXI_HP0_FPD] [get_bd_intf_pins axi_interc_hp0/M00_AXI]
 
 # axi_interc_hpm0
-connect_bd_net [get_bd_pins axi_interc_hpm0/aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_interc_hpm0/aresetn] $rstn_300M
+connect_bd_net [get_bd_pins axi_interc_hpm0/aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_interc_hpm0/aresetn] $rstn_200M
 connect_bd_intf_net [get_bd_intf_pins axi_interc_hpm0/S00_AXI] [get_bd_intf_pins zynq_ultra_ps/M_AXI_HPM0_FPD]
 
 # Interrupts
-connect_bd_net [get_bd_pins axi_intc_0/s_axi_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_intc_0/s_axi_aresetn] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
+connect_bd_net [get_bd_pins axi_intc_0/s_axi_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_intc_0/s_axi_aresetn] $rstn_200M
+connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
 connect_bd_net [get_bd_pins axi_intc_0/irq] [get_bd_pins zynq_ultra_ps/pl_ps_irq0]
 connect_bd_net [get_bd_pins axi_intc_0/intr] [get_bd_pins xlconcat_0/dout] 
 
 # RPI I2C
-connect_bd_net [get_bd_pins axi_iic_0/s_axi_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_iic_0/s_axi_aresetn] $rstn_300M
-connect_bd_net [get_bd_pins axi_iic_0/iic2intc_irpt] [get_bd_pins xlconcat_0/In2]
-connect_bd_intf_net -intf_net axi_iic_0_IIC [get_bd_intf_pins axi_iic_0/IIC] [get_bd_intf_ports som240_1_connector_hda_iic_switch]
-connect_bd_intf_net [get_bd_intf_pins axi_iic_0/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
+# connect_bd_net [get_bd_pins axi_iic_0/s_axi_aclk] $clk_200M
+# connect_bd_net [get_bd_pins axi_iic_0/s_axi_aresetn] $rstn_200M
+# connect_bd_net [get_bd_pins axi_iic_0/iic2intc_irpt] [get_bd_pins xlconcat_0/In2]
+# connect_bd_intf_net -intf_net axi_iic_0_IIC [get_bd_intf_pins axi_iic_0/IIC] [get_bd_intf_ports IIC_1_0]
+# connect_bd_intf_net [get_bd_intf_pins axi_iic_0/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
+connect_bd_intf_net [get_bd_intf_ports IIC_1_0] [get_bd_intf_pins zynq_ultra_ps/IIC_1]
 
 # RPI enable set to 1
 connect_bd_net [get_bd_ports rpi_cam_en] [get_bd_pins constant_1/dout]
 
 # MIPI CSI RX
-connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aclk] $clk_300M
-connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aresetn] $rstn_300M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aclk] $clk_200M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aresetn] $rstn_200M
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/dphy_clk_200M] $clk_200M
-connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aclk] $clk_300M
-connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aresetn] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
-connect_bd_intf_net -intf_net som240_1_connector_mipi_csi_raspi_1 [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
-connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aclk] $clk_200M
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aresetn] $rstn_200M
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins v_demosaic_0/s_axis_video]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
+
+# Video Demosaic
+connect_bd_net [get_bd_pins v_demosaic_0/ap_clk] $clk_200M
+connect_bd_net [get_bd_pins v_demosaic_0/ap_rst_n] $rstn_200M
+connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/m_axis_video] [get_bd_intf_pins v_gamma_lut_0/s_axis_video]
+
+# Video Gamma LUT
+connect_bd_net [get_bd_pins v_gamma_lut_0/ap_clk] $clk_200M
+connect_bd_net [get_bd_pins v_gamma_lut_0/ap_rst_n] $rstn_200M
+connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/m_axis_video] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
+
+# Video Timing Controller
+connect_bd_net [get_bd_pins v_tc_0/clk] $clk_148_5M
+connect_bd_net [get_bd_pins v_tc_0/resetn] $rstn_148_5M
+connect_bd_net [get_bd_pins v_tc_0/s_axi_aclk] $clk_200M
+connect_bd_net [get_bd_pins v_tc_0/s_axi_aresetn] $rstn_200M
+connect_bd_net [get_bd_pins v_tc_0/gen_clken] [get_bd_pins v_axi4s_vid_out_0/vtg_ce]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_io_out_ce] [get_bd_pins constant_1/dout]
+connect_bd_net [get_bd_pins v_tc_0/clken] [get_bd_pins constant_1/dout]
+connect_bd_net [get_bd_pins v_tc_0/sof_state] [get_bd_pins v_axi4s_vid_out_0/sof_state_out]
+connect_bd_net [get_bd_pins v_tc_0/s_axi_aclken] [get_bd_pins constant_1/dout]
+connect_bd_intf_net [get_bd_intf_pins v_tc_0/ctrl] [get_bd_intf_pins axi_interc_hpm0/M04_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_tc_0/vtiming_out] [get_bd_intf_pins v_axi4s_vid_out_0/vtiming_in]
+connect_bd_intf_net [get_bd_intf_pins v_axi4s_vid_out_0/video_in] [get_bd_intf_pins axi_vdma_0/M_AXIS_MM2S]
 
 # AXI VDMA
-connect_bd_net [get_bd_pins axi_vdma_0/s_axi_lite_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_vdma_0/m_axi_mm2s_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_vdma_0/m_axis_mm2s_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_vdma_0/m_axi_s2mm_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_vdma_0/s_axis_s2mm_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_vdma_0/axi_resetn] $rstn_300M
+connect_bd_net [get_bd_pins axi_vdma_0/s_axi_lite_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_vdma_0/m_axi_mm2s_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_vdma_0/m_axis_mm2s_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_vdma_0/m_axi_s2mm_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_vdma_0/s_axis_s2mm_aclk] $clk_200M
+connect_bd_net [get_bd_pins axi_vdma_0/axi_resetn] $rstn_200M
 connect_bd_net [get_bd_pins axi_vdma_0/mm2s_introut] [get_bd_pins xlconcat_0/In0]
 connect_bd_net [get_bd_pins axi_vdma_0/s2mm_introut] [get_bd_pins xlconcat_0/In1]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_MM2S] [get_bd_intf_pins axi_interc_hp0/S00_AXI]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_S2MM] [get_bd_intf_pins axi_interc_hp0/S01_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_MM2S] [get_bd_intf_pins axi_interc_hp0/S00_AXI] 
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_S2MM] [get_bd_intf_pins axi_interc_hp0/S01_AXI] 
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M05_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] [get_bd_intf_pins v_gamma_lut_0/m_axis_video]
+
+# Video AXIS out
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/aclk] $clk_200M
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/aresetn] $rstn_200M
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_io_out_clk] $clk_148_5M
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_io_out_reset] $rst_148_5M
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/aclken] [get_bd_pins constant_1/dout]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_active_video] [get_bd_pins zynq_ultra_ps/dp_live_video_in_de]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_data] [get_bd_pins zynq_ultra_ps/dp_live_video_in_pixel1]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_hsync] [get_bd_pins zynq_ultra_ps/dp_live_video_in_hsync]
+connect_bd_net [get_bd_pins v_axi4s_vid_out_0/vid_vsync] [get_bd_pins zynq_ultra_ps/dp_live_video_in_vsync]
 
 # counter_wrapper
 create_bd_port -dir O -from 7 -to 0 pmod
@@ -307,25 +428,21 @@ save_bd_design [current_bd_design]
 assign_bd_address -target_address_space /axi_vdma_0/Data_MM2S [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_LOW] -force
 assign_bd_address -target_address_space /axi_vdma_0/Data_MM2S [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_QSPI] -force
 assign_bd_address -target_address_space /axi_vdma_0/Data_MM2S [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_LPS_OCM] -force
-exclude_bd_addr_seg [get_bd_addr_segs axi_vdma_0/Data_MM2S/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
+exclude_bd_addr_seg [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_HIGH] -target_address_space [get_bd_addr_spaces axi_vdma_0/Data_MM2S]
 
 # AXI VDMA S2MM memory map: how it sees PS
 assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_LOW] -force
 assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_QSPI] -force
 assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_LPS_OCM] -force
-exclude_bd_addr_seg [get_bd_addr_segs axi_vdma_0/Data_S2MM/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
+exclude_bd_addr_seg [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_HIGH] -target_address_space [get_bd_addr_spaces axi_vdma_0/Data_S2MM]
 
-# PS memory map: how it sees interrupt controller
+# PS memory map: how it sees the PL AXI devices
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_intc_0/S_AXI/Reg] -force
-
-# PS memory map: how it sees AXI VDMA S_AXI_LITE
-assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
-
-# PS memory map: how it sees MIPI CSI RX AXI
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
-
-# PS memory map: how it sees AXI IIC
-assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_iic_0/S_AXI/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_demosaic_0/s_axi_CTRL/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_gamma_lut_0/s_axi_CTRL/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_tc_0/ctrl/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
 
 ##############################################################################
 # Regenerate layout and validate design
