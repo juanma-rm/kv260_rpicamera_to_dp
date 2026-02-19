@@ -38,7 +38,7 @@ int gamma_lut_init() {
 	XV_gamma_lut gamma_lut;
 	XV_gamma_lut_Config *gamma_lut_config;
 
-	if ( (gamma_lut_config = XV_gamma_lut_LookupConfig(XPAR_AXI_VDMA_0_DEVICE_ID)) == NULL) {
+	if ( (gamma_lut_config = XV_gamma_lut_LookupConfig(XPAR_XV_GAMMA_LUT_0_BASEADDR)) == NULL) {
 		xil_printf("XV_gamma_lut_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}

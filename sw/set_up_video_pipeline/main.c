@@ -39,6 +39,7 @@ SOFTWARE.
 #include "demosaic.h"
 #include "vdma.h"
 #include "gamma_lut.h"
+#include "sleep.h"
 
 int main() {
     init_platform();
@@ -54,6 +55,11 @@ int main() {
     ov5647_init();
 
 	xil_printf("Entire video pipeline activated\r\n");
+
+	while (1) {
+		xil_printf("Heartbeat\r\n");
+		usleep(2000000);
+	}
 
     cleanup_platform();
     return 0;

@@ -19,7 +19,7 @@ int ov5647_init() {
 	 * i2c expander reset_b is tied high on board
 	 */
 
-	if ( (iic_config = XIicPs_LookupConfig(XPAR_PSU_I2C_1_DEVICE_ID)) == NULL) {
+	if ( (iic_config = XIicPs_LookupConfig(XPAR_XIICPS_0_BASEADDR)) == NULL) {
 		xil_printf("XIicPs_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}

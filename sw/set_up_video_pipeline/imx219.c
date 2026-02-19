@@ -50,7 +50,7 @@ int imx219_init() {
 	u8 camera_model_id[2];
 
 	if (BOARD == ULTRA96) {	
-		if ( (gpio_config = XGpioPs_LookupConfig(XPAR_PSU_GPIO_0_DEVICE_ID)) == NULL) {
+		if ( (gpio_config = XGpioPs_LookupConfig(XPAR_XGPIOPS_0_BASEADDR)) == NULL) {
 			xil_printf("XGpioPs_LookupConfig() failed\r\n");
 			return XST_FAILURE;
 		}
@@ -80,7 +80,7 @@ int imx219_init() {
 	 * i2c expander reset_b is tied high on board
 	 */
 
-	if ( (iic_config = XIicPs_LookupConfig(XPAR_PSU_I2C_1_DEVICE_ID)) == NULL) {
+	if ( (iic_config = XIicPs_LookupConfig(XPAR_XIICPS_0_BASEADDR)) == NULL) {
 		xil_printf("XIicPs_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}

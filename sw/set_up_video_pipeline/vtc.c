@@ -38,7 +38,7 @@ int vtc_init() {
 	XVtc vtc;
 	XVtc_Config *vtc_config;
 
-    if ( (vtc_config = XVtc_LookupConfig(XPAR_VTC_0_DEVICE_ID)) == NULL) {
+    if ( (vtc_config = XVtc_LookupConfig(XPAR_XVTC_0_BASEADDR)) == NULL) {
 		xil_printf("XVtc_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}

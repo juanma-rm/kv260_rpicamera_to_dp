@@ -49,22 +49,32 @@ The video output is configured to work at 1080p@60fps (with a clock running at 1
 
 **Vivado Project: build the project and generate bitstream and xsa platform file**:
 
+Option 1 (Makefile):
 ```
 cd output
-source /opt/Xilinx/Vivado/2022.1/settings64.sh
+source /opt/Xilinx/Vivado/2025.2/settings64.sh
 make # build the Vivado project and generate bitstream and xsa
 make vivado # build the Vivado project and opens it from Vivado GUI. Parameters and configuration can be changed manually in this way.
 ```
 
-See `output/Makefile` and `ips/platform.tcl` for more details about usage and parameters.
+Option 2 (Python):
+```
+cd output
+python build_vivado_proj.py --target all --dev-flow vitis_standalone --jobs 16 --vivado-path C:\AMD\2025.2\Vivado\bin\vivado.bat
+```
+
+See `output/Makefile`, `output/build_vivado_proj.py`, and `ips/platform.tcl` for more details about usage and parameters.
 
 **Software: standalone**:
 
 Vitis Project:
 
-- From Vitis IDE, build a platform project based on the xsa generated from the previous step (under `output/artifacts`).
-- On top of that platform, build a standalone application project for the A53 core based on Empty C template.
-- Import the sources from sw/set_up_video_pipeline to the application project.
+- Automatic flow (`output\build_vitis_proj.py`):
+  - From Windows: C:\AMD\2025.2\Vitis\bin\vitis.bat -s build_vitis_proj.py -x artifacts/kv260_rpicamera_to_dp.xsa -w vitis -p kv260_rpicamera_to_dp --sw-path ../sw/set_up_video_pipeline
+- Manual flow:
+  - From Vitis IDE, build a platform project based on the xsa generated from the previous step (under `output/artifacts`).
+  - On top of that platform, build a standalone application project for the A53 core based on Empty C template.
+  - Import the sources from sw/set_up_video_pipeline to the application project.
 - Modify VIDEO_MODE_CONFIG in parameters.h to match the video mode used.
 - Build the project and upload it into the KV260.
 

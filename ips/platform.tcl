@@ -15,7 +15,7 @@ set EXTENSIBLE_PLATFORM false
 
 # Select FAN_CONTROL value among the following options
 set fan_control_type {ttc0_linux counter_fpga default}
-set FAN_CONTROL "ttc0_linux"
+set FAN_CONTROL "counter_fpga"
 
 ##############################################################################
 # Main block design based on ZUS+ MPSoC
@@ -26,7 +26,7 @@ create_bd_design "$BD_TOP"
 update_compile_order -fileset sources_1
 
 # Zynq Ultrscale+ MPSoC block (default preset)
-set zynq_ultra_ps [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ultra_ps ]
+set zynq_ultra_ps [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps ]
 apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  $zynq_ultra_ps
 set_property -dict [ list \
     CONFIG.PSU__USE__M_AXI_GP0 {1}                               \
@@ -175,7 +175,7 @@ set_property -dict [list \
 ] [get_bd_cells constant_1]
 
 # MIPI CSI2 RX
-set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:5.1 mipi_csi2_rx_0 ]
+set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:6.0 mipi_csi2_rx_0 ]
 set_property -dict [ list \
     CONFIG.AXIS_TDEST_WIDTH {4} \
     CONFIG.CLK_LANE_IO_LOC {D7} \

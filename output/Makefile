@@ -8,8 +8,8 @@
 # Usage
 #############################################################
 
-# Source Vivado environment. Example for 2022.1 in Ubuntu
-# source /opt/Xilinx/Vivado/2022.1/settings64.sh
+# Source Vivado environment. Example for 2025.2 in Ubuntu
+# source /opt/Xilinx/Vivado/2025.2/settings64.sh
 
 # Makefile usage:
 # make all: build Vivado project, synthesise, implement and generate bitstream and xsa files
@@ -48,7 +48,15 @@ SYN_NUM_JOBS = 12
 DEV_FLOW = vitis_standalone
 
 MAKEFILE_PATH := $(realpath $(lastword $(MAKEFILE_LIST)))
-WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..
+
+# Detect environment and set appropriate workspace path
+ifeq ($(OS),Windows_NT)
+    # Windows environment - convert to Windows paths, then replace backslashes with forward slashes for TCL
+    WORKSPACE_PATH := $(shell cygpath -w $(shell dirname $(shell dirname $(realpath $(MAKEFILE_PATH)))) | sed 's|\\|/|g')
+else
+    # Unix/Linux environment - use Unix paths
+    WORKSPACE_PATH := $(dir $(MAKEFILE_PATH))..
+endif
 
 #############################################################
 # Input files

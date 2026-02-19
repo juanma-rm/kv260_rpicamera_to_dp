@@ -50,13 +50,13 @@ int displayport_init() {
 
 	memset(&avbuf, 0, sizeof(XAVBuf)); // XAVBuf_CfgInitialize does not properly initialize
 
-	if ( (dppsu_config = XDpPsu_LookupConfig(XPAR_PSU_DP_DEVICE_ID)) == NULL) {
+	if ( (dppsu_config = XDpPsu_LookupConfig(XPAR_XDPPSU_0_BASEADDR)) == NULL) {
 		xil_printf("XDpPsu_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}
 	XDpPsu_CfgInitialize(&dppsu, dppsu_config, dppsu_config->BaseAddr);
-	XAVBuf_CfgInitialize(&avbuf, dppsu_config->BaseAddr, XPAR_PSU_DP_DEVICE_ID);
-	if ( (dpdma_config = XDpDma_LookupConfig(XPAR_PSU_DPDMA_DEVICE_ID)) == NULL) {
+	XAVBuf_CfgInitialize(&avbuf, dppsu_config->BaseAddr);
+	if ( (dpdma_config = XDpDma_LookupConfig(XPAR_XDPDMA_0_BASEADDR)) == NULL) {
 		xil_printf("XDpDma_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}
@@ -90,7 +90,7 @@ int displayport_init() {
 }
 
 int displayport_setup_interrupts() {
-	XScuGic	ic;
+	static XScuGic	ic;
 	XScuGic_Config *ic_config;
 
 	u32 interrupt_mask = XDPPSU_INTR_HPD_IRQ_MASK | XDPPSU_INTR_HPD_EVENT_MASK;
@@ -101,7 +101,7 @@ int displayport_setup_interrupts() {
 	XDpPsu_SetHpdEventHandler(&dppsu, displayport_hpd_event_isr, &dummy_user_data);
 	XDpPsu_SetHpdPulseHandler(&dppsu, displayport_hpd_pulse_isr, &dummy_user_data);
 
-	if ( (ic_config = XScuGic_LookupConfig(XPAR_SCUGIC_0_DEVICE_ID)) == NULL) {
+	if ( (ic_config = XScuGic_LookupConfig(XPAR_XSCUGIC_0_BASEADDR)) == NULL) {
 		xil_printf("XScuGic_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}
@@ -122,7 +122,7 @@ int displayport_setup_interrupts() {
 
 	/* Connect DPDMA Interrupt */
 	if (XScuGic_Connect(&ic, DPDMA_INTR_ID,
-			(Xil_ExceptionHandler) XDpDma_InterruptHandler, &dppsu) != XST_SUCCESS) {
+			(Xil_InterruptHandler) XDpDma_InterruptHandler, &dpdma) != XST_SUCCESS) {
 		xil_printf("XScuGic_Connect() failed\r\n");
 		return XST_FAILURE;
 	}
@@ -130,8 +130,8 @@ int displayport_setup_interrupts() {
 	/* Initialize exceptions. */
 	Xil_ExceptionInit();
 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,
-			(Xil_ExceptionHandler) XScuGic_DeviceInterruptHandler,
-			XPAR_SCUGIC_0_DEVICE_ID);
+			(Xil_ExceptionHandler) XScuGic_InterruptHandler,
+			&ic);
 
 	/* Enable exceptions for interrupts. */
 	Xil_ExceptionEnableMask(XIL_EXCEPTION_IRQ);

@@ -38,7 +38,7 @@ int demosaic_init() {
 	XV_demosaic demosaic;
 	XV_demosaic_Config *demosaic_config;
 
-	if ( (demosaic_config = XV_demosaic_LookupConfig(XPAR_V_DEMOSAIC_0_DEVICE_ID)) == NULL) {
+	if ( (demosaic_config = XV_demosaic_LookupConfig(XPAR_XV_DEMOSAIC_0_BASEADDR)) == NULL) {
 		xil_printf("XV_demosaic_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}

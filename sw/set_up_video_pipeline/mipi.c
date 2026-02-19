@@ -36,7 +36,7 @@ int mipi_init() {
 	XCsiSs mipi;
 	XCsiSs_Config *mipi_config;
 
-	if ( (mipi_config = XCsiSs_LookupConfig(XPAR_MIPI_CSI2_RX_0_DEVICE_ID)) == NULL) {
+	if ( (mipi_config = XCsiSs_LookupConfig(XPAR_XMIPICSISS_0_BASEADDR)) == NULL) {
 		xil_printf("XCsiSs_LookupConfig() failed\r\n");
 		return XST_FAILURE;
 	}
