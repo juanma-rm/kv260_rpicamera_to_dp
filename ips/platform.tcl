@@ -26,7 +26,7 @@ create_bd_design "$BD_TOP"
 update_compile_order -fileset sources_1
 
 # Zynq Ultrscale+ MPSoC block (default preset)
-set zynq_ultra_ps [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ultra_ps ]
+set zynq_ultra_ps [ create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ultra_ps ]
 apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  $zynq_ultra_ps
 set_property -dict [ list \
     CONFIG.PSU__USE__M_AXI_GP0 {1}                               \
@@ -96,7 +96,7 @@ set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5
 set axi_intc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_intc:4.1 axi_intc_0 ]
 set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0 ]
 set_property -dict [ list \
-    CONFIG.NUM_PORTS {3} \
+    CONFIG.NUM_PORTS {6} \
 ] $xlconcat_0
 
 ##############################################################################
@@ -106,7 +106,7 @@ set_property -dict [ list \
 set axi_interc_hpm0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpm0 ]
 set_property -dict [ list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {4} \
+    CONFIG.NUM_MI {6} \
 ] $axi_interc_hpm0
 
 set axi_interc_hp0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hp0 ]
@@ -172,19 +172,62 @@ set_property -dict [list \
 ] [get_bd_cells constant_1]
 
 # MIPI CSI2 RX
-set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:5.1 mipi_csi2_rx_0 ]
+set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:6.0 mipi_csi2_rx_0 ]
 set_property -dict [ list \
-    CONFIG.CMN_NUM_PIXELS {2} \
+    CONFIG.AXIS_TDEST_WIDTH {4} \
+    CONFIG.CLK_LANE_IO_LOC {D7} \
+    CONFIG.CLK_LANE_IO_LOC_NAME {IO_L13P_T2L_N0_GC_QBC_66} \
+    CONFIG.CMN_NUM_LANES {2} \
+    CONFIG.CMN_NUM_PIXELS {1} \
+    CONFIG.CMN_PXL_FORMAT {RAW10} \
+    CONFIG.CSI_BUF_DEPTH {4096} \
+    CONFIG.C_CLK_LANE_IO_POSITION {26} \
+    CONFIG.C_CSI_EN_CRC {false} \
+    CONFIG.C_CSI_FILTER_USERDATATYPE {false} \
+    CONFIG.C_DATA_LANE0_IO_POSITION {28} \
+    CONFIG.C_DATA_LANE1_IO_POSITION {30} \
+    CONFIG.C_DPHY_LANES {2} \
+    CONFIG.C_EN_BG0_PIN0 {false} \
+    CONFIG.C_EN_BG1_PIN0 {false} \
+    CONFIG.C_HS_LINE_RATE {912} \
+    CONFIG.C_HS_SETTLE_NS {145} \
+    CONFIG.C_STRETCH_LINE_RATE {1500} \
+    CONFIG.DATA_LANE0_IO_LOC {E5} \
+    CONFIG.DATA_LANE0_IO_LOC_NAME {IO_L14P_T2L_N2_GC_66} \
+    CONFIG.DATA_LANE1_IO_LOC {G6} \
+    CONFIG.DATA_LANE1_IO_LOC_NAME {IO_L15P_T2L_N4_AD11P_66} \
     CONFIG.DPHYRX_BOARD_INTERFACE {som240_1_connector_mipi_csi_raspi} \
+    CONFIG.DPY_EN_REG_IF {false} \
+    CONFIG.DPY_LINE_RATE {912} \
+    CONFIG.HP_IO_BANK_SELECTION {66} \
     CONFIG.SupportLevel {1} \
-    CONFIG.USE_BOARD_FLOW {true} \
+    CONFIG.VFB_TU_WIDTH {1} \
 ] $mipi_csi2_rx_0
+
+# Video Demosaic
+set v_demosaic_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_demosaic:1.1 v_demosaic_0 ]
+set_property -dict [ list \
+    CONFIG.MAX_COLS {1920} \
+    CONFIG.MAX_DATA_WIDTH {10} \
+    CONFIG.MAX_ROWS {1080} \
+    CONFIG.SAMPLES_PER_CLOCK {1} \
+] $v_demosaic_0
+
+# Video Gamma LUT
+set v_gamma_lut_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:v_gamma_lut:1.1 v_gamma_lut_0 ]
+set_property -dict [ list \
+    CONFIG.MAX_COLS {1920} \
+    CONFIG.MAX_DATA_WIDTH {10} \
+    CONFIG.MAX_ROWS {1080} \
+] $v_gamma_lut_0
 
 # AXI VDMA
 set axi_vdma_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0 ]
 set_property -dict [ list \
-    CONFIG.c_s2mm_linebuffer_depth {2048} \
-    CONFIG.c_s2mm_max_burst_length {128} \
+   CONFIG.c_include_mm2s_dre {1} \
+   CONFIG.c_include_s2mm_dre {1} \
+   CONFIG.c_mm2s_linebuffer_depth {4096} \
+   CONFIG.c_s2mm_linebuffer_depth {4096} \
 ] $axi_vdma_0
 
 ##############################################################################
@@ -237,7 +280,7 @@ connect_bd_intf_net [get_bd_intf_pins axi_interc_hpm0/S00_AXI] [get_bd_intf_pins
 # Interrupts
 connect_bd_net [get_bd_pins axi_intc_0/s_axi_aclk] $clk_300M
 connect_bd_net [get_bd_pins axi_intc_0/s_axi_aresetn] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
 connect_bd_net [get_bd_pins axi_intc_0/irq] [get_bd_pins zynq_ultra_ps/pl_ps_irq0]
 connect_bd_net [get_bd_pins axi_intc_0/intr] [get_bd_pins xlconcat_0/dout] 
 
@@ -257,9 +300,21 @@ connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aresetn] $rstn_300M
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/dphy_clk_200M] $clk_200M
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aclk] $clk_300M
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aresetn] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
-connect_bd_intf_net -intf_net som240_1_connector_mipi_csi_raspi_1 [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
-connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins v_demosaic_0/s_axis_video]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
+
+# Video Demosaic
+connect_bd_net [get_bd_pins v_demosaic_0/ap_clk] $clk_300M
+connect_bd_net [get_bd_pins v_demosaic_0/ap_rst_n] $rstn_300M
+connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/m_axis_video] [get_bd_intf_pins v_gamma_lut_0/s_axis_video]
+
+# Video Gamma LUT
+connect_bd_net [get_bd_pins v_gamma_lut_0/ap_clk] $clk_300M
+connect_bd_net [get_bd_pins v_gamma_lut_0/ap_rst_n] $rstn_300M
+connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M04_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/m_axis_video] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
 
 # AXI VDMA
 connect_bd_net [get_bd_pins axi_vdma_0/s_axi_lite_aclk] $clk_300M
@@ -270,9 +325,13 @@ connect_bd_net [get_bd_pins axi_vdma_0/s_axis_s2mm_aclk] $clk_300M
 connect_bd_net [get_bd_pins axi_vdma_0/axi_resetn] $rstn_300M
 connect_bd_net [get_bd_pins axi_vdma_0/mm2s_introut] [get_bd_pins xlconcat_0/In0]
 connect_bd_net [get_bd_pins axi_vdma_0/s2mm_introut] [get_bd_pins xlconcat_0/In1]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_MM2S] [get_bd_intf_pins axi_interc_hp0/S00_AXI]
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_S2MM] [get_bd_intf_pins axi_interc_hp0/S01_AXI]
+connect_bd_net [get_bd_pins mipi_csi2_rx_0/csirxss_csi_irq] [get_bd_pins xlconcat_0/In3]
+connect_bd_net [get_bd_pins v_demosaic_0/interrupt] [get_bd_pins xlconcat_0/In4]
+connect_bd_net [get_bd_pins v_gamma_lut_0/interrupt] [get_bd_pins xlconcat_0/In5]
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_MM2S] [get_bd_intf_pins axi_interc_hp0/S00_AXI] 
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_S2MM] [get_bd_intf_pins axi_interc_hp0/S01_AXI] 
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M05_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] [get_bd_intf_pins v_gamma_lut_0/m_axis_video]
 
 # counter_wrapper
 create_bd_port -dir O -from 7 -to 0 pmod
@@ -315,16 +374,12 @@ assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs 
 assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_LPS_OCM] -force
 exclude_bd_addr_seg [get_bd_addr_segs axi_vdma_0/Data_S2MM/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
 
-# PS memory map: how it sees interrupt controller
+# PS memory map: how it sees the PL AXI devices
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_intc_0/S_AXI/Reg] -force
-
-# PS memory map: how it sees AXI VDMA S_AXI_LITE
-assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
-
-# PS memory map: how it sees MIPI CSI RX AXI
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
-
-# PS memory map: how it sees AXI IIC
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_demosaic_0/s_axi_CTRL/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_gamma_lut_0/s_axi_CTRL/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_iic_0/S_AXI/Reg] -force
 
 ##############################################################################
@@ -370,7 +425,7 @@ if {$EXTENSIBLE_PLATFORM} {
     set_property platform.vendor {vendor} [current_project]
     set_property platform.board_id {lib} [current_project]
     set_property platform.version {1.0} [current_project]
-    set_property pfm_name {vendor:lib:$PROJECT_NAME:1.0} [get_files -all $BD_TOP.bd]
+    set_property pfm_name "vendor:lib:${PROJECT_NAME}:1.0" [get_files -all $BD_TOP.bd]
 }
 
 ##############################################################################
