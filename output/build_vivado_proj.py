@@ -156,8 +156,31 @@ class VivadoBuilder:
         
         for directory in directories:
             if directory.exists():
-                shutil.rmtree(directory)
-                print(f"  Removed: {directory}")
+                try:
+                    shutil.rmtree(directory)
+                    print(f"  Removed: {directory}")
+                except PermissionError as e:
+                    print(f"  Permission error removing {directory}: {e}")
+                    print(f"  Attempting to remove contents individually...")
+                    try:
+                        # Try to remove files individually
+                        for item in directory.rglob("*"):
+                            try:
+                                if item.is_file():
+                                    item.chmod(0o666)  # Remove read-only attribute
+                                    item.unlink()
+                                elif item.is_dir():
+                                    shutil.rmtree(item)
+                            except (PermissionError, OSError) as e2:
+                                print(f"    Could not remove {item}: {e2}")
+                        # Try to remove the directory again
+                        try:
+                            directory.rmdir()
+                            print(f"  Removed: {directory}")
+                        except OSError:
+                            print(f"  Could not remove directory {directory} (may be empty or locked)")
+                    except Exception as e2:
+                        print(f"  Failed to clean {directory}: {e2}")
         
         # Clean Vivado temporary files in output directory
         output_dir = self.workspace_path / "output"
@@ -165,8 +188,11 @@ class VivadoBuilder:
             patterns = ["vivado*.jou", "vivado*.log", "dfx_runtime.txt"]
             for pattern in patterns:
                 for file_path in output_dir.glob(pattern):
-                    file_path.unlink()
-                    print(f"  Removed: {file_path}")
+                    try:
+                        file_path.unlink()
+                        print(f"  Removed: {file_path}")
+                    except PermissionError as e:
+                        print(f"  Permission error removing {file_path}: {e}")
 
     def get_tool_path(self, tool_type: str) -> str:
         """Get path for specific tool (vivado, bootgen, xsct)"""
@@ -720,9 +746,7 @@ class VivadoBuilder:
             print(f" {dtsi_artifact}")
             print("*"*80)
             print(" ACTION REQUIRED:")
-            print(" 1. Open the file ABOVE in your editor (the one in artifacts).")
-            print(" 2. Add the V4L2/Media Graph fragments from 'plan_port_v4l2.md'.")
-            print(" 3. Save the file.")
+            print(" Open the file ABOVE in your editor (the one in artifacts), edit it as required and save it.")
             print("*"*80)
             input(" Press Enter once you have finished editing to continue with compilation...")
             
