@@ -54,56 +54,40 @@
 };
 
 &amba {
-	axi_intc_0: interrupt-controller@a0000000 {
-		#interrupt-cells = <2>;
-		xlnx,sense-of-irq-edge-type = "Rising";
-		xlnx,edk-special = "INTR_CTRL";
-		xlnx,kind-of-intr = <0x0>;
-		xlnx,kind-of-edge = <0xffffffff>;
-		xlnx,irq-is-level = <1>;
-		xlnx,has-ivr = <1>;
-		compatible = "xlnx,axi-intc-4.1" , "xlnx,xps-intc-1.00.a";
-		xlnx,disable-synchronizers = <0>;
-		xlnx,kind-of-lvl = <0xffffffff>;
-		xlnx,ivar-reset-value = <0x10>;
-		xlnx,irq-active = <0x1>;
-		xlnx,en-cascade-mode = <0>;
-		xlnx,ip-name = "axi_intc";
-		xlnx,has-ilr = <0>;
-		reg = <0x0 0xa0000000 0x0 0x10000>;
-		xlnx,addr-width = <0x20>;
+	axi_gpio_rst: gpio@a0050000 {
+		xlnx,gpio-board-interface = "Custom";
+		compatible = "xlnx,axi-gpio-2.0" , "xlnx,xps-gpio-1.00.a";
+		xlnx,all-outputs = <1>;
+		#gpio-cells = <2>;
+		xlnx,gpio-width = <3>;
+		xlnx,dout-default = <0x7>;
+		xlnx,is-dual = <0>;
+		xlnx,ip-name = "axi_gpio";
+		xlnx,tri-default-2 = <0xffffffff>;
+		reg = <0x0 0xa0050000 0x0 0x10000>;
+		xlnx,all-inputs-2 = <0>;
 		clocks = <&misc_clk_0>;
-		xlnx,s-axi-aclk-freq-mhz = <0x11e19748>;
-		xlnx,num-sw-intr = <0>;
-		xlnx,irq-connection = <0>;
-		xlnx,num-intr-inputs = <0x6>;
-		xlnx,has-sie = <1>;
-		xlnx,enable-async = <0>;
-		xlnx,has-cie = <1>;
-		xlnx,num-sync-ff = <2>;
+		xlnx,all-outputs-2 = <0>;
+		gpio-controller;
+		xlnx,interrupt-present = <0>;
+		xlnx,gpio2-board-interface = "Custom";
 		xlnx,edk-iptype = "PERIPHERAL";
-		xlnx,mb-clk-not-connected = <1>;
-		xlnx,has-ipr = <1>;
-		xlnx,sense-of-irq-level-type = "Active_High";
-		xlnx,cascade-master = <0>;
-		xlnx,processor-clk-freq-mhz = <100>;
-		xlnx,is-fast = <0x0>;
+		xlnx,dout-default-2 = <0x0>;
+		xlnx,gpio2-width = <32>;
 		clock-names = "s_axi_aclk";
-		xlnx,has-fast = <0>;
-		xlnx,ivar-rst-val = <0x10>;
-		interrupt-controller;
-		xlnx,async-intr = <0xffffffc8>;
-		xlnx,name = "axi_intc_0";
+		xlnx,tri-default = <0xffffffff>;
+		xlnx,name = "axi_gpio_rst";
+		xlnx,all-inputs = <0>;
 	};
-	axi_iic_0: i2c@a0050000 {
-		interrupts = < 2 2 >;
+	axi_iic_0: i2c@a0040000 {
+		interrupts = < 0 106 4 >;
 		xlnx,iic-freq-khz = <400>;
 		compatible = "xlnx,axi-iic-2.1" , "xlnx,xps-iic-2.00.a";
 		xlnx,scl-inertial-delay = <0>;
-		interrupt-parent = <&axi_intc_0>;
+		interrupt-parent = <&gic>;
 		xlnx,ip-name = "axi_iic";
 		xlnx,disable-setup-violation-check = <0>;
-		reg = <0x0 0xa0050000 0x0 0x10000>;
+		reg = <0x0 0xa0040000 0x0 0x10000>;
 		clocks = <&misc_clk_0>;
 		xlnx,gpo-width = <1>;
 		xlnx,edk-iptype = "PERIPHERAL";
@@ -132,7 +116,7 @@
 			reg = <0x74>;
 			i2c@0 { reg = <0>; };
 			i2c@1 { reg = <1>; };
-			rpi_i2c: i2c@2 { 
+			rpi_i2c: i2c@2 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				reg = <2>;
@@ -140,6 +124,8 @@
 					compatible = "ovti,ov5647";
 					reg = <0x36>;
 					clocks = <&ov5647_clk>;
+					pwdn-gpios = <&axi_gpio_rst 2 1>; 
+					clock-names = "xclk"; 
 					port {
 						ov5647_to_mipi: endpoint {
 							remote-endpoint = <&mipi_csi_inmipi_csi2_rx_0>;
@@ -152,7 +138,7 @@
 			i2c@3 { reg = <3>; };
 		};
 	};
-	axi_vdma_0: dma@a0040000 {
+	axi_vdma_0: dma@a0030000 {
 		xlnx,enable-debug-info-9 = <0x0>;
 		xlnx,enable-s2mm-frm-counter = <1>;
 		xlnx,enable-mm2s-delay-counter = <1>;
@@ -160,7 +146,7 @@
 		xlnx,enable-s2mm-buf-full = <0>;
 		xlnx,ip-name = "axi_vdma";
 		xlnx,s2mm-genlock-num-masters = <1>;
-		reg = <0x0 0xa0040000 0x0 0x10000>;
+		reg = <0x0 0xa0030000 0x0 0x10000>;
 		xlnx,enable-s2mm-fsync-out = <0>;
 		xlnx,use-mm2s-fsync = <0>;
 		xlnx,s2mm-linebuffer-thresh = <4>;
@@ -176,7 +162,7 @@
 		xlnx,mm2s-linebuffer-thresh = <4>;
 		compatible = "xlnx,axi-vdma-6.3" , "xlnx,axi-vdma-1.00.a";
 		xlnx,enable-tstvec = <0>;
-		interrupt-parent = <&axi_intc_0>;
+		interrupt-parent = <&gic>;
 		xlnx,s2mm-max-burst-length = <8>;
 		xlnx,enable-mm2s-rst-out = <0>;
 		xlnx,mm2s-sof-enable = <1>;
@@ -188,7 +174,7 @@
 		xlnx,include-mm2s-dre = <0x1>;
 		xlnx,name = "axi_vdma_0";
 		xlnx,enable-mm2s-frmstr-reg = <0>;
-		interrupts = < 0 2 1 2 >;
+		interrupts = < 0 104 4 0 105 4 >;
 		xlnx,m-axi-mm2s-data-width = <64>;
 		xlnx,flush-on-fsync = <0x1>;
 		xlnx,include-s2mm-sf = <1>;
@@ -243,16 +229,16 @@
 		xlnx,use-s2mm-fsync = <2>;
 		xlnx,enable-debug-info-8 = <0>;
 		xlnx,enable-mm2s-buf-empty = <0>;
-		dma_channel_a0040000: dma-channel@a0040000 {
-			interrupts = < 0 2 >;
+		dma_channel_a0030000: dma-channel@a0030000 {
+			interrupts = < 0 104 4 >;
 			xlnx,datawidth = <0x20>;
 			xlnx,device-id = <0x0>;
 			compatible = "xlnx,axi-vdma-mm2s-channel";
 			xlnx,include-dre;
 			xlnx,genlock-mode;
 		};
-		dma_channel_a0040030: dma-channel@a0040030 {
-			interrupts = < 1 2 >;
+		dma_channel_a0030030: dma-channel@a0030030 {
+			interrupts = < 0 105 4 >;
 			xlnx,datawidth = <0x20>;
 			xlnx,device-id = <0x0>;
 			compatible = "xlnx,axi-vdma-s2mm-channel";
@@ -260,13 +246,13 @@
 			xlnx,genlock-mode;
 		};
 	};
-	mipi_csi2_rx_0: mipi_csi2_rx_subsystem@a0010000 {
+	mipi_csi2_rx_0: mipi_csi2_rx_subsystem@a0000000 {
 		xlnx,data-lane2-byte = "All_Byte";
 		xlnx,dpy-en-reg-if = <0>;
 		xlnx,cmn-vc = <4>;
 		xlnx,dphy-lanes = <2>;
 		xlnx,ip-name = "mipi_csi2_rx_subsystem";
-		reg = <0x0 0xa0010000 0x0 0x1000>;
+		reg = <0x0 0xa0000000 0x0 0x1000>;
 		xlnx,vfb-tu-width = <1>;
 		xlnx,ppc = <1>;
 		xlnx,csi-buf-depth = <4096>;
@@ -288,7 +274,7 @@
 		xlnx,csi2rx-dbg = <0>;
 		xlnx,fifo-rd-en-control;
 		xlnx,vfb;
-		interrupt-parent = <&axi_intc_0>;
+		interrupt-parent = <&gic>;
 		xlnx,data-lane1-io-loc-name = "IO_L15P_T2L_N4_AD11P_66";
 		xlnx,hs-timeout = <65541>;
 		xlnx,data-lane3-io-loc-name = "None";
@@ -304,7 +290,7 @@
 		xlnx,en-vcx = <0>;
 		xlnx,name = "mipi_csi2_rx_0";
 		xlnx,csi-emb-non-img = <0>;
-		interrupts = < 3 2 >;
+		interrupts = < 0 107 4 >;
 		xlnx,dphyrx-board-interface = "som240_1_connector_mipi_csi_raspi";
 		xlnx,data-lane3-io-loc = "None";
 		xlnx,clock-mask = <39>;
@@ -332,7 +318,7 @@
 		xlnx,idly-group-name = "mipi_csi2rx_idly_group";
 		xlnx,lprx-disable-extport = <0>;
 		csirx-connected = <&mipi_csi2_rx_0_rx>;
-		xlnx,highaddr = <0xa0010fff>;
+		xlnx,highaddr = <0xa0000fff>;
 		xlnx,cmn-num-lanes = <2>;
 		xlnx,exdes-config = "MIPI_Video_Pipe_Camera_to_Display";
 		xlnx,exdesboard-version = <2>;
@@ -376,16 +362,17 @@
 			};
 		};
 	};
-	v_demosaic_0: v_demosaic@a0020000 {
-		interrupts = < 4 2 >;
+	v_demosaic_0: v_demosaic@a0010000 {
+		interrupts = < 0 108 4 >;
 		compatible = "xlnx,v-demosaic-1.1" , "xlnx,v-demosaic";
 		xlnx,max-width = <1920>;
+		reset-gpios = <&axi_gpio_rst 0 1>;
 		xlnx,max-height = <1080>;
-		interrupt-parent = <&axi_intc_0>;
+		interrupt-parent = <&gic>;
 		xlnx,max-rows = <1080>;
 		xlnx,use-uram = <0>;
 		xlnx,ip-name = "v_demosaic";
-		reg = <0x0 0xa0020000 0x0 0x10000>;
+		reg = <0x0 0xa0010000 0x0 0x10000>;
 		clocks = <&misc_clk_0>;
 		xlnx,s-axi-ctrl-addr-width = <6>;
 		xlnx,enable-zipper-removal;
@@ -415,15 +402,16 @@
 			};
 		};
 	};
-	v_gamma_lut_0: v_gamma_lut@a0030000 {
-		interrupts = < 5 2 >;
+	v_gamma_lut_0: v_gamma_lut@a0020000 {
+		interrupts = < 0 109 4 >;
 		compatible = "xlnx,v-gamma-lut-1.1" , "xlnx,v-gamma-lut";
 		xlnx,max-width = <1920>;
+		reset-gpios = <&axi_gpio_rst 1 1>;
 		xlnx,max-height = <1080>;
-		interrupt-parent = <&axi_intc_0>;
+		interrupt-parent = <&gic>;
 		xlnx,max-rows = <1080>;
 		xlnx,ip-name = "v_gamma_lut";
-		reg = <0x0 0xa0030000 0x0 0x10000>;
+		reg = <0x0 0xa0020000 0x0 0x10000>;
 		clocks = <&misc_clk_0>;
 		xlnx,s-axi-ctrl-addr-width = <13>;
 		xlnx,max-data-width = <10>;
@@ -455,7 +443,7 @@
 	};
 	mipi_csi2_rx_0_rx: mipi_csi2_rx_0_rx@0 {
 		xlnx,ip-name = "mipi_csi2_rx_ctrl";
-		reg = <0x0 0xa0010000 0x0 0x1000>;
+		reg = <0x0 0xa0000000 0x0 0x1000>;
 		xlnx,ppi-sig-width = <0>;
 		xlnx,cmn-inc-vfb;
 		xlnx,axis-tuser-width = <96>;
@@ -520,7 +508,7 @@
 			port@0 {
 				reg = <0>;
 				direction = "input";
-				vdma_in: endpoint { remote-endpoint = <&gamma_outv_gamma_lut_0>; };
+				axi_vdma_0v_gamma_lut_0: endpoint { remote-endpoint = <&gamma_outv_gamma_lut_0>; };
 			};
 		};
 	};
