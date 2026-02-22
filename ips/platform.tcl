@@ -39,6 +39,7 @@ set_property -dict [ list \
     CONFIG.PSU__TTC0__WAVEOUT__ENABLE {1}                        \
     CONFIG.PSU__TTC0__WAVEOUT__IO {EMIO}                         \
     CONFIG.PSU__USE__VIDEO {0}                                   \
+    CONFIG.PSU__USE__IRQ1 {1}                                    \
 ] $zynq_ultra_ps
 
 ##############################################################################
@@ -90,10 +91,10 @@ set ps_reset_200M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5
 set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_300M ]
 
 ##############################################################################
-# Interrupts (xlconcat)
+# Interrupts (direct to PS GIC via pl_ps_irq0 — no axi_intc cascade)
+# Avoids irq-xilinx kernel crash on 5.15 when loaded via DT overlay
 ##############################################################################
 
-set axi_intc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_intc:4.1 axi_intc_0 ]
 set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0 ]
 set_property -dict [ list \
     CONFIG.NUM_PORTS {6} \
@@ -163,13 +164,8 @@ set_property -dict [ list \
 # Raspberry PI MIPI CSI interface
 set som240_1_connector_mipi_csi_raspi [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mipi_phy_rtl:1.0 som240_1_connector_mipi_csi_raspi ]
 
-# RPI enable + constant (1)
+# Raspberry PI enable pin (driven by AXI GPIO)
 set rpi_cam_en [ create_bd_port -dir O -from 0 -to 0 rpi_cam_en ]
-set constant_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 constant_1 ]
-set_property -dict [list \
-    CONFIG.CONST_WIDTH {1} \
-    CONFIG.CONST_VAL {1} \
-] [get_bd_cells constant_1]
 
 # MIPI CSI2 RX
 set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:6.0 mipi_csi2_rx_0 ]
@@ -220,6 +216,43 @@ set_property -dict [ list \
     CONFIG.MAX_DATA_WIDTH {10} \
     CONFIG.MAX_ROWS {1080} \
 ] $v_gamma_lut_0
+
+# AXI GPIO for IP software reset (demosaic bit0, gamma bit1, rpi_cam_en bit2)
+# The driver (xlnx_rebase_v5.15) requires reset-gpios in DT
+set axi_gpio_rst [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_rst ]
+set_property -dict [ list \
+    CONFIG.C_GPIO_WIDTH {3} \
+    CONFIG.C_ALL_OUTPUTS {1} \
+    CONFIG.C_DOUT_DEFAULT {0x7} \
+] $axi_gpio_rst
+
+# Slice bit0 → demosaic reset
+set gpio_slice_demosaic [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_demosaic ]
+set_property -dict [ list \
+    CONFIG.DIN_WIDTH {3} \
+    CONFIG.DIN_FROM {0} \
+    CONFIG.DIN_TO {0} \
+    CONFIG.DOUT_WIDTH {1} \
+] $gpio_slice_demosaic
+
+# Slice bit1 → gamma reset
+set gpio_slice_gamma [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_gamma ]
+set_property -dict [ list \
+    CONFIG.DIN_WIDTH {3} \
+    CONFIG.DIN_FROM {1} \
+    CONFIG.DIN_TO {1} \
+    CONFIG.DOUT_WIDTH {1} \
+] $gpio_slice_gamma
+
+# Slice bit2 → RPi camera enable/reset
+set gpio_slice_rpicam [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_rpicam ]
+set_property -dict [ list \
+    CONFIG.DIN_WIDTH {3} \
+    CONFIG.DIN_FROM {2} \
+    CONFIG.DIN_TO {2} \
+    CONFIG.DOUT_WIDTH {1} \
+] $gpio_slice_rpicam
+
 
 # AXI VDMA
 set axi_vdma_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0 ]
@@ -277,22 +310,18 @@ connect_bd_net [get_bd_pins axi_interc_hpm0/aclk] $clk_300M
 connect_bd_net [get_bd_pins axi_interc_hpm0/aresetn] $rstn_300M
 connect_bd_intf_net [get_bd_intf_pins axi_interc_hpm0/S00_AXI] [get_bd_intf_pins zynq_ultra_ps/M_AXI_HPM0_FPD]
 
-# Interrupts
-connect_bd_net [get_bd_pins axi_intc_0/s_axi_aclk] $clk_300M
-connect_bd_net [get_bd_pins axi_intc_0/s_axi_aresetn] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins axi_intc_0/s_axi] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
-connect_bd_net [get_bd_pins axi_intc_0/irq] [get_bd_pins zynq_ultra_ps/pl_ps_irq0]
-connect_bd_net [get_bd_pins axi_intc_0/intr] [get_bd_pins xlconcat_0/dout] 
+# Interrupts — direct to PS GIC Port 1 (SPI 104-111)
+connect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins zynq_ultra_ps/pl_ps_irq1]
 
 # RPI I2C
 connect_bd_net [get_bd_pins axi_iic_0/s_axi_aclk] $clk_300M
 connect_bd_net [get_bd_pins axi_iic_0/s_axi_aresetn] $rstn_300M
 connect_bd_net [get_bd_pins axi_iic_0/iic2intc_irpt] [get_bd_pins xlconcat_0/In2]
 connect_bd_intf_net -intf_net axi_iic_0_IIC [get_bd_intf_pins axi_iic_0/IIC] [get_bd_intf_ports som240_1_connector_hda_iic_switch]
-connect_bd_intf_net [get_bd_intf_pins axi_iic_0/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_iic_0/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
 
-# RPI enable set to 1
-connect_bd_net [get_bd_ports rpi_cam_en] [get_bd_pins constant_1/dout]
+# RPI enable connected to AXI GPIO bit 2
+connect_bd_net [get_bd_ports rpi_cam_en] [get_bd_pins gpio_slice_rpicam/Dout]
 
 # MIPI CSI RX
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/lite_aclk] $clk_300M
@@ -302,18 +331,27 @@ connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aclk] $clk_300M
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/video_aresetn] $rstn_300M
 connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/video_out] [get_bd_intf_pins v_demosaic_0/s_axis_video]
 connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/mipi_phy_if] [get_bd_intf_ports som240_1_connector_mipi_csi_raspi]
-connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
+connect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_0/csirxss_s_axi] [get_bd_intf_pins axi_interc_hpm0/M00_AXI]
+
+# AXI GPIO reset controller
+connect_bd_net [get_bd_pins axi_gpio_rst/s_axi_aclk] $clk_300M
+connect_bd_net [get_bd_pins axi_gpio_rst/s_axi_aresetn] $rstn_300M
+connect_bd_intf_net [get_bd_intf_pins axi_gpio_rst/S_AXI] [get_bd_intf_pins axi_interc_hpm0/M05_AXI]
+connect_bd_net [get_bd_pins axi_gpio_rst/gpio_io_o] [get_bd_pins gpio_slice_demosaic/Din]
+connect_bd_net [get_bd_pins axi_gpio_rst/gpio_io_o] [get_bd_pins gpio_slice_gamma/Din]
+connect_bd_net [get_bd_pins axi_gpio_rst/gpio_io_o] [get_bd_pins gpio_slice_rpicam/Din]
+
 
 # Video Demosaic
 connect_bd_net [get_bd_pins v_demosaic_0/ap_clk] $clk_300M
-connect_bd_net [get_bd_pins v_demosaic_0/ap_rst_n] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M02_AXI]
+connect_bd_net [get_bd_pins v_demosaic_0/ap_rst_n] [get_bd_pins gpio_slice_demosaic/Dout]
+connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M01_AXI]
 connect_bd_intf_net [get_bd_intf_pins v_demosaic_0/m_axis_video] [get_bd_intf_pins v_gamma_lut_0/s_axis_video]
 
 # Video Gamma LUT
 connect_bd_net [get_bd_pins v_gamma_lut_0/ap_clk] $clk_300M
-connect_bd_net [get_bd_pins v_gamma_lut_0/ap_rst_n] $rstn_300M
-connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M04_AXI]
+connect_bd_net [get_bd_pins v_gamma_lut_0/ap_rst_n] [get_bd_pins gpio_slice_gamma/Dout]
+connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M03_AXI]
 connect_bd_intf_net [get_bd_intf_pins v_gamma_lut_0/m_axis_video] [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] 
 
 # AXI VDMA
@@ -330,7 +368,7 @@ connect_bd_net [get_bd_pins v_demosaic_0/interrupt] [get_bd_pins xlconcat_0/In4]
 connect_bd_net [get_bd_pins v_gamma_lut_0/interrupt] [get_bd_pins xlconcat_0/In5]
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_MM2S] [get_bd_intf_pins axi_interc_hp0/S00_AXI] 
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXI_S2MM] [get_bd_intf_pins axi_interc_hp0/S01_AXI] 
-connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M05_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M04_AXI]
 connect_bd_intf_net [get_bd_intf_pins axi_vdma_0/S_AXIS_S2MM] [get_bd_intf_pins v_gamma_lut_0/m_axis_video]
 
 # counter_wrapper
@@ -375,12 +413,12 @@ assign_bd_address -target_address_space /axi_vdma_0/Data_S2MM [get_bd_addr_segs 
 exclude_bd_addr_seg [get_bd_addr_segs axi_vdma_0/Data_S2MM/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
 
 # PS memory map: how it sees the PL AXI devices
-assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_intc_0/S_AXI/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_demosaic_0/s_axi_CTRL/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_gamma_lut_0/s_axi_CTRL/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_vdma_0/S_AXI_LITE/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_iic_0/S_AXI/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_gpio_rst/S_AXI/Reg] -force
 
 ##############################################################################
 # Regenerate layout and validate design
