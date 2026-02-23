@@ -57,6 +57,12 @@ Configure the video resolution of the video generator through the `rtl/axis_vide
 
 **Vivado Project: build the project and generate bitstream and xsa platform file**:
 
+Option 1 (Python script, recommended):
+```
+python build_vivado_proj.py --target all --dev-flow vivado_accelerator # the dtsi file is generated automatically but needs manual editing to add ov5647 info; the script will request the user to modify it and press enter before proceeding to build the dtbo file
+```
+
+Option 2 (Makefile):
 ```
 cd output
 source /opt/Xilinx/Vivado/2022.1/settings64.sh
@@ -64,7 +70,7 @@ make # build the Vivado project and generate bitstream and xsa
 make vivado # build the Vivado project and opens it from Vivado GUI. Parameters and configuration can be changed manually in this way.
 ```
 
-See `output/Makefile` and `ips/platform.tcl` for more details about usage and parameters.
+See `output/build_vivado_proj.py`, `output/Makefile` and `ips/platform.tcl` for more details about usage and parameters.
 
 **Software: Ubuntu and Pynq**:
 
