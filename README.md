@@ -17,6 +17,8 @@ Having generated video from the PL and forwarded it to the video output in the A
 
 This project now implements a complete V4L2-based video pipeline that leverages standard Linux frameworks for camera control, video processing, and display. The approach moves from bare-metal register manipulation to using kernel drivers, media controllers, and GStreamer for a more robust and maintainable solution that integrates seamlessly with Ubuntu 22.04.
 
+<img src="pics/diagram.png" alt="overview" width="1000">
+
 ## Hardware design <a id="Hardware-Design"></a>
 
 
