@@ -13,102 +13,212 @@
 
 ## About the project <a id="About-The-Project"></a>
 
-Having generated video from the PL and forwarded it to the video output in the AMD KV260 platform, the next step is to find a way to make the same work when Ubuntu is running on the PS side. In standalone, I had a simple application running on the A53 that configured the Display Port (DP) and its DMA to enable the Live video input (coming from the PL) in the DP controller.
+Having generated video from the PL and forwarded it to the video output in the AMD KV260 platform, the next step is to find a way to make the same work when Ubuntu is running on the PS side. In standalone, I had a simple application running on the A53 that configured the Display Port (DP) and its DMA to enable the Live video input (coming from the PL) in the DP controller. 
 
-As a first approach, I researched how to perform a configuration similar to the one that I did in standalone but this time from Ubuntu. Unfortunately, I could not find a way to port that baremetal example. Looking into the AMD examples for KV260, I found that the hardware architecture in aibox-reid application is based on the DP Live video input; the software seems to use GStreamer and modetest. I tried reproducing that application from Ubuntu 22.04 running on my KR260 but could not make it (it seems to be intended for Petalinux since doing `modetest -M xlnx` reported
-`failed to open device 'xlnx': No such file or directory`). If someone knows a way to make it work from Ubuntu and shares it, I would really appreciate it. In any case, I will jump into Petalinux eventually.
-
-As an alternative straightforward solution, I decided to avoid the DP Live video interface and use Pynq from Ubuntu to forward the video frames generated in the PL towards the video output. This is not efficient at all due to the longer path to go from PL to DP (having to go through the APU) and also to the fact of having a non-real-time OS + Python interpreter just forwarding data; however, it is more than enough for the moment.
+This project now implements a complete V4L2-based video pipeline that leverages standard Linux frameworks for camera control, video processing, and display. The approach moves from bare-metal register manipulation to using kernel drivers, media controllers, and GStreamer for a more robust and maintainable solution that integrates seamlessly with Ubuntu 22.04.
 
 ## Hardware design <a id="Hardware-Design"></a>
 
-From the FPGA perspective, the Vivado design now does not make usage of DP live interface. Instead, the video generator AXIS output is now received by an `AXI Video DMA or  VDMA` connected to the Processing System (PS) memory via two memory-mapped AXI interfaces (one to send data to the PS memory and one to request data from the PS memory; only the former is used). A general AXI DMA is able to move data between AXIS and AXI devices; the AXI VDMA in particular is intended to move video data as it is intended to work with video frames. This VDMA will forward video frames to the processor uppon request from the latter.
 
-A diagram of the general interconnection system in the Zynq Ultrascale+ is shown below:
+The hardware design implements a complete video pipeline from the OV5647 Raspberry Pi camera to DDR memory using standard Linux V4L2 frameworks. The design transitions from bare-metal AXI VDMA to the modern `xilinx-frmbuf` driver for better Linux compatibility.
 
-<img src="pics/zynq_mpsoc_diagram.png" alt="zynq_mpsoc_diagram" width="1000">
+### Video Pipeline Architecture
 
-The video frames flow from the video generator in the FPGA to the main processor through DDR (orange arrows), operation that is performed by the VDMA when requested by the processor (green arrows representing the path followed by those control commands). This is highlighted below:
+The video processing pipeline consists of the following IP blocks:
 
-<img src="pics/zynq_mpsoc_diagram_2.png" alt="zynq_mpsoc_diagram_2" width="1000">
-
+```
+OV5647 Camera
+     │ (MIPI CSI-2, 2 lanes, RAW10)
+     ▼
+MIPI CSI-2 RX Subsystem
+     │ (AXI-Stream, RAW10)
+     ▼
+AXI Subset Converter
+     │ (AXI-Stream, RAW8)
+     ▼
+Video Demosaic
+     │ (AXI-Stream, RGB888)
+     ▼
+Video Gamma LUT
+     │ (AXI-Stream, RGB888)
+     ▼
+VPSS CSC (Color Space Conv.)
+     │ (AXI-Stream, RGB888)
+     ▼
+VPSS Scaler (Hardware Scaling)
+     │ (AXI-Stream, RGB888)
+     ▼
+Video Frame Buffer Write
+     │ (AXI DMA, DDR Memory)
+     ▼
+Linux V4L2 Driver (/dev/video0)
+```
 The resulting Vivado block diagram is shown below.
 
-<img src="pics/block_design.png" alt="block_design" width="1500">
+<img src="pics/block_design_part_1.png" alt="block_design_part_1" width="1000">
+<img src="pics/block_design_part_2.png" alt="block_design_part_2" width="1000">
+<img src="pics/block_design_part_3.png" alt="block_design_part_3" width="1000">
+
+
+### Key IP Components
+
+**Video Processing IPs:**
+- **MIPI CSI-2 RX Subsystem** - Camera interface with 2-lane DPHY, RAW10→RAW8 conversion
+- **AXI Subset Converter** - RAW10 to RAW8 data conversion (16-bit to 8-bit)
+- **Video Demosaic** - Bayer pattern to RGB888 conversion
+- **Video Gamma LUT** - Gamma correction for RGB888 data
+- **VPSS CSC** - Color space conversion (RGB888 input/output)
+- **VPSS Scaler** - Hardware up/down scaling (RGB888)
+- **Video Frame Buffer Write** - Memory DMA supporting multiple formats including NV12
+
+**Control & Support IPs:**
+- **AXI IIC** - I2C controller for camera communication via PCA9546 mux
+- **AXI GPIO** - Reset controller for all video IPs
+- **Counter Wrapper** - Debug/test output
+
+### I2C Topology
+
+Unlike bare-metal implementations that use PS I2C1 (EMIO), the Linux V4L2 approach routes I2C through the PL:
+
+```
+PS ARM → AXI IIC (PL IP @ 0xa0040000) → PCA9546 Mux (addr 0x74) → Channel 2 → OV5647 (addr 0x36)
+```
+
+This creates a chain of Linux I2C adapters that the kernel drivers manage automatically.
 
 ## Software design <a id="Software-design"></a>
 
-From the processor perspective, it now runs Ubuntu 22.04, on top of which I use Pynq to ease the PL-PS interaction. The software tasks are simple: 1) configure the DisplayPort (DP) channel and the AXI VDMA implemented in the PL and 2) perform requests to the VDMA to bring frames one by one from the PL, forwarding each to the DP.
+The software architecture leverages standard Linux V4L2 frameworks running on Ubuntu 22.04. The implementation uses kernel drivers, media controllers, and GStreamer to create a complete video pipeline from the OV5647 camera to display output.
+
+### Key Software Components
+
+**Linux Kernel Drivers:**
+- `ov5647.ko` - OV5647 camera sensor driver (patched for KV260 I2C timeout issues)
+- `xilinx-frmbuf` - Video Frame Buffer Write driver for memory DMA
+- `xilinx-demosaic` - Bayer to RGB conversion driver
+- `xilinx-gamma-lut` - Gamma correction driver
+- `xilinx-vpss-scaler` - Hardware scaling driver
+- `xilinx-video` - Xilinx video framework binding all IPs together
+- `pca954x` - I2C multiplexer driver
+
+**Media Controller Framework:**
+- `media-ctl` - Configures pad-to-pad pipeline links between hardware blocks
+- `v4l2-ctl` - Real-time camera parameter tuning (brightness, contrast, gamma)
+- `/dev/media0` - Media device representing the complete video pipeline
+
+**Application Layer:**
+- **GStreamer Pipeline** - Uses `mediasrcbin` → `v4l2src` → `kmssink` for zero-copy video streaming
+- **DRM (Direct Rendering Manager) /KMS (Kernel Mode Setting)** - DisplayPort controller management via `kmssink`
+- **Device Tree Overlay** - Dynamic hardware loading via `xmutil`
+
+### Software Architecture Flow
+
+```
+OV5647 Camera → Linux Kernel Drivers → Media Controller → V4L2 API → GStreamer → DRM/KMS → Display
+```
 
 ## Prerequisites <a id="Prerequisites"></a>
 
-- [AMD Vivado Design Suite](https://www.xilinx.com/products/design-tools/vivado.html) for generating the project, the output artefacts, programming the FPGA, etc.
-- [cocotb](https://www.cocotb.org/) as testbenching framework.
-- [Questa advanced simulator](https://eda.sw.siemens.com/en-US/ic/questa/simulation/advanced-simulator/) as simulator. Opensource alternatives such as [GHDL](https://github.com/ghdl/ghdl) + [gtkwave](https://github.com/gtkwave/gtkwave) are also good options (they would require minor modifications in the test Makefile).
+**Hardware:**
 - [AMD KV260](https://www.xilinx.com/products/som/kria/kv260-vision-starter-kit.html)
 - External monitor
-- HDMI or DisplayPort cable connecting the external monitor and the KV260.
+- HDMI or DisplayPort cable connecting the external monitor and the KV260
+- OV5647 Raspberry Pi Camera V2 sensor module
+
+**Development Tools:**
+- [AMD Vivado Design Suite](https://www.xilinx.com/products/design-tools/vivado.html) for generating the project, the output artefacts, programming the FPGA, etc.
+- [cocotb](https://www.cocotb.org/) as testbenching framework
+- [Questa advanced simulator](https://eda.sw.siemens.com/en-US/ic/questa/simulation/advanced-simulator/) as simulator. Opensource alternatives such as [GHDL](https://github.com/ghdl/ghdl) + [gtkwave](https://github.com/gtkwave/gtkwave) are also good options (they would require minor modifications in the test Makefile)
+
+**Software (KV260 Ubuntu 22.04):**
+- Ubuntu 22.04 for Kria SOM (official Kria image)
+- Kernel headers for building OV5647 driver: `linux-headers-$(uname -r)`
+- V4L2 and media controller utilities: `v4l-utils`, `yavta`, `i2c-tools`
+- GStreamer with Xilinx plugins: `gstreamer1.0-tools`, `gstreamer1.0-plugins-good`, `gstreamer1.0-plugins-bad`, `gstreamer1.0-xilinx`
+- Device tree compiler: `device-tree-compiler`
+- DRM development libraries: `libdrm-xlnx-dev`
+- Build tools for kernel modules: `build-essential`
 
 ## Usage <a id="Usage"></a>
 
-**Vivado Project: configuration**:
+See [`plan_port_v4l2.md`](plan_port_v4l2.md) for complete instructions on how to build, deploy and run the project. 
 
-Configure the video resolution of the video generator through the `rtl/axis_video_pattern_generator_wrapper.vhd` parameters (originally set up to 1080p).
+**Hardware Build (from development machine):**
+```bash
+# Note: Pre-generated artifacts are available in output/artifacts_save/
 
-**Vivado Project: build the project and generate bitstream and xsa platform file**:
+# Build Vivado project and generate artifacts
+python output/build_vivado_proj.py --target all --dev-flow vivado_accelerator \
+  --vivado-path /opt/Xilinx/Vivado/2022.1/bin/vivado \
+  --vitis-path /opt/Xilinx/Vitis/2022.1/bin/vitis \
+  --bootgen-path /opt/Xilinx/Vivado/2022.1/bin/bootgen \
+  --dtc-path /opt/Xilinx/Vitis/2022.1/bin/dtc
 
-Option 1 (Python script, recommended):
-```
-python build_vivado_proj.py --target all --dev-flow vivado_accelerator # the dtsi file is generated automatically but needs manual editing to add ov5647 info; the script will request the user to modify it and press enter before proceeding to build the dtbo file
-```
-
-Option 2 (Makefile):
-```
-cd output
-source /opt/Xilinx/Vivado/2022.1/settings64.sh
-make # build the Vivado project and generate bitstream and xsa
-make vivado # build the Vivado project and opens it from Vivado GUI. Parameters and configuration can be changed manually in this way.
+# Note: The script will pause for manual DTSI editing to add OV5647 sensor information
 ```
 
-See `output/build_vivado_proj.py`, `output/Makefile` and `ips/platform.tcl` for more details about usage and parameters.
+**One-Time Setup (from KV260):**
+```bash
+# Install required packages
+sudo apt update
+sudo apt install -y linux-headers-$(uname -r) v4l-utils yavta i2c-tools device-tree-compiler
+sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-xilinx
+sudo apt install -y libdrm-xlnx-dev build-essential
 
-**Software: Ubuntu and Pynq**:
-
-1) Set up the KV260 with Ubuntu as explained [here](https://www.xilinx.com/products/som/kria/kv260-vision-starter-kit/kv260-getting-started-ubuntu/setting-up-the-sd-card-image.html)
-
-2) Install Pynq from Ubuntu running on the KV260:
-```
-git clone https://github.com/Xilinx/Kria-PYNQ.git
-cd Kria-PYNQ/
-sudo bash install.sh -b KV260
-```
-
-3) Copy `sw/video_forwarder.py` and the `xsa` file generated from Vivado in the previous step to the kv260. Update path to xsa in the python script if they are not located under the same path. In `video_forwarder.py`, configure the video resolution by modifying `Video Mode` of `vdma` and `displayport` as required (originally set up to 1080p). 
-
-4) Run the script as follows:
-
-```
-sudo su
-source /etc/profile.d/pynq_venv.sh
-python3 video_forwarder.py
+# Build and install patched OV5647 driver
+cd sw/ov5647_driver_patched
+make
+sudo cp ov5647.ko /lib/modules/$(uname -r)/kernel/drivers/media/i2c/ov5647.ko
+sudo depmod -a
 ```
 
-The video generator output should appear now in the external screen:
+**Quick Start (from KV260):**
+```bash
+# Load hardware overlay
+sudo xmutil unloadapp
+sudo xmutil loadapp kv260_rpicamera_to_dp
 
-<img src="pics/custom_video_generator.gif" alt="custom_video_generator" width="500">
+# Configure the pipeline
+sudo chmod +x sw/setup_v4l2.sh
+sudo ./sw/setup_v4l2.sh
+
+# Stream video to display
+sudo xmutil desktop_disable # Disable desktop to free display resources
+gst-launch-1.0 mediasrcbin media-device=/dev/media0 v4l2src0::io-mode=mmap ! \
+  video/x-raw, width=1920, height=1080, format=NV12, framerate=30/1 ! \
+  kmssink driver-name=xlnx plane-id=39 fullscreen-overlay=true sync=false
+```
 
 ## References <a id="References"></a>
 
-- [Zynq UltraScale+ Device Technical Reference Manual](https://docs.xilinx.com/r/en-US/ug1085-zynq-ultrascale-trm). In particular, section `DisplayPort Controller` provides relevant information on the underlying hardware in charge of controlling the video output.
+**Project Documentation:**
+- [`plan_port_v4l2.md`](plan_port_v4l2.md) - Complete V4L2 porting plan and detailed instructions
+
+**Xilinx V4L2 & Smart Camera Resources:**
+- [Xilinx Smart Camera Project](https://xilinx.github.io/kria-apps-docs/kv260/2022.1/build/html/docs/smartcamera/docs/sw_arch_platform.html) - V4L2 TRD framework reference
+- [RasPi-Camera-V2-KV260](https://github.com/ikwzm/RasPi-Camera-V2-KV260) - VPSS-centric Ubuntu implementation
+- [KV260_IMX477_CAMERA](https://github.com/zakinder/KV260_IMX477_CAMERA) - Bare-metal reference implementation
+- [Xilinx Kria Vitis Platforms](https://github.com/Xilinx/kria-vitis-platforms/) - Platform development resources
+
+**Xilinx Hardware Documentation:**
+- [Zynq UltraScale+ Device Technical Reference Manual](https://docs.xilinx.com/r/en-US/ug1085-zynq-ultrascale-trm) - DisplayPort Controller and hardware interfaces
 - [Kria KV260 Vision AI Starter Kit User Guide (UG1089)](https://docs.xilinx.com/r/en-US/ug1089-kv260-starter-kit/Summary)
-- [Kria KV260 Vision AI Starter Kit Data Sheet(DS986)](https://docs.xilinx.com/r/en-US/ds986-kv260-starter-kit/Summary)
+- [Kria KV260 Vision AI Starter Kit Data Sheet (DS986)](https://docs.xilinx.com/r/en-US/ds986-kv260-starter-kit/Summary)
+- [Kria K26 SOM Data Sheet (DS987)](https://docs.xilinx.com/r/en-US/ds987-k26-som/Overview)
 - [Kria KV260 Vision AI Starter Kit Applications](https://xilinx.github.io/kria-apps-docs/kv260/2022.1/build/html/index.html)
 - [Steps to set up the KV260 board and Ubuntu](https://www.xilinx.com/products/som/kria/kv260-vision-starter-kit/kv260-getting-started-ubuntu/setting-up-the-sd-card-image.html)
 - [Kria SOM Carrier Card Design Guide (UG1091)](https://docs.xilinx.com/r/en-US/ug1091-carrier-card-design/MIO-Signals)
-- [Kria K26 SOM Data Sheet(DS987)](https://docs.xilinx.com/r/en-US/ds987-k26-som/Overview)
-- [AMD Video Series and Blog Posts](https://support.xilinx.com/s/question/0D52E00006hpsS0SAI/xilinx-video-series-and-blog-posts?language=en_US)
 - [AMD AXI VDMA documentation](https://docs.xilinx.com/r/en-US/pg020_axi_vdma)
 - [Pynq documentation](https://pynq.readthedocs.io/en/v2.1/getting_started.html)
+
+**Linux & Software Resources:**
+- [Ubuntu 22.04 for Kria SOM](https://ubuntu.com/download/amd#kria-k26) - Official Ubuntu image
+- [Linux V4L2 Documentation](https://www.kernel.org/doc/html/latest/driver-api/media/v4l2-core.html) - V4L2 framework reference
+- [GStreamer Documentation](https://gstreamer.freedesktop.org/documentation/) - GStreamer pipeline development
+- [Media Controller Documentation](https://www.kernel.org/doc/html/latest/driver-api/media/mc-core.html) - Media controller framework
+
+**Community & Support:**
+- [AMD Video Series and Blog Posts](https://support.xilinx.com/s/question/0D52E00006hpsS0SAI/xilinx-video-series-and-blog-posts?language=en_US) - Video processing tutorials
 
 ## Contact <a id="Contact"></a>
 

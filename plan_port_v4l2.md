@@ -4,6 +4,26 @@
 
 This document outlines the steps to port the existing bare-metal video pipeline to run on Ubuntu 22.04 using the standard Linux **V4L2**, **Media Controller**, and **DRM/KMS** frameworks.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [References](#references)
+- [Section 1 — Hardware: Vivado Build, Device Tree & Deployment](#section-1--hardware-vivado-build-device-tree--deployment)
+  - [1.1 Project artifacts](#11-project-artifacts)
+  - [1.2 Hardware IPs, Addresses, I2C Topology & Interrupts](#12-hardware-ips-addresses-i2c-topology--interrupts)
+  - [1.3 Device Tree Overlay — Structure & Manual Edits](#13-device-tree-overlay----structure--manual-edits)
+  - [1.4 Deploy Bitstream & Device Tree onto the KV260](#14-deploy-bitstream--device-tree-onto-the-kv260)
+- [Section 2 — Linux Drivers: Kernel Modules & Image Sensor](#section-2--linux-drivers-kernel-modules--image-sensor)
+  - [2.0 Software setup](#20-software-setup)
+  - [2.1 Verify required Kernel modules](#21-verify-required-kernel-modules)
+  - [2.2 Load PL IP drivers](#22-load-pl-ip-drivers)
+  - [2.3 OV5647 Driver — Patched Out-of-Tree Build](#23-ov5647-driver----patched-out-of-tree-build)
+  - [2.4 Verify all drivers are now loaded](#24-verify-all-drivers-are-now-loaded)
+- [Section 3 — Linux Media Graph & Stream](#section-3--linux-media-graph--stream)
+- [Section 4 — Stream via network (UDP/IP)](#section-4--stream-via-network-udpip)
+- [Section 5 — Future work](#section-5--future-work)
+
+
 ## Overview
 
 | Component | Bare Metal | Ubuntu V4L2 |
@@ -28,6 +48,7 @@ Xilinx Smart Camera Project
   - https://xilinx.github.io/kria-apps-docs/kv260/2022.1/build/html/docs/smartcamera/docs/hw_arch_platform.html
   - https://xilinx.github.io/kria-apps-docs/kv260/2022.1/build/html/docs/smartcamera/docs/hw_arch_accel.html
   - https://xilinx.github.io/kria-apps-docs/kv260/2022.1/build/html/docs/smartcamera/docs/app_deployment.html
+  - https://github.com/Xilinx/kria-vitis-platforms/
 - Setup:
 - Hardware Architecture (PL): 
 - Software Architecture: 
@@ -800,6 +821,14 @@ The process to **configure the media graph and stream video to the DisplayPort o
 
 See `sw\setup_v4l2.sh` for the commands to configure the media graph.
 
+```bash
+sudo xmutil unloadapp
+sudo xmutil loadapp kv260_rpicamera_to_dp
+sudo xmutil desktop_disable # We need to disable the desktop environment
+sudo ./setup_v4l2.sh 
+sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! "video/x-raw, width=1920, height=1080, format=BGRx" ! videoconvert ! fbdevsink device=/dev/fb0 sync=false
+```
+
 ### Verify media graph configuration
 
 The following **commands can be used to verify the media graph configuration**:
@@ -843,7 +872,15 @@ Streaming output to the display requires setting the system in console mode (no 
 
 ```bash
 
-# Option 1. Via systemctl
+
+# Option 1. Via xmutil
+
+sudo xmutil desktop_disable
+
+# To re-enable desktop later:
+# sudo xmutil desktop_enable
+
+# Option 2. Via systemctl
 
 # Set system to boot to console mode (no desktop environment)
 sudo systemctl set-default multi-user.target
@@ -853,12 +890,6 @@ sudo reboot
 # sudo systemctl set-default graphical.target
 # sudo reboot
 
-# Option 2. Via xmutil
-
-sudo xmutil desktop_disable
-
-# To re-enable desktop later:
-# sudo xmutil desktop_enable
 ```
 
 Other commands that could be useful for handling the display when running in console mode (shouldn't be necessary with the commands above) 
@@ -888,3 +919,70 @@ sudo cat /sys/kernel/debug/dri/0/state
 ```
 
 ---
+
+## Section 4 — Stream via network (UDP/IP)
+
+**General steps**:
+
+Set up Firewall to allow connection to port 5000 on both KV260 and workstation.
+
+KV260:
+```
+sudo ufw disable
+```
+
+Workstation (Windows): 
+From cmd (admin):
+```
+New-NetFirewallRule -DisplayName "G_KriaStream" -Direction Inbound -Protocol UDP -LocalPort 5000 -Action Allow
+```
+
+Connect from workstation (Videolan VLC). From VLC:
+- Media -> Open Network
+- udp://@:5000
+
+**Stream 1080p**:
+
+KV260:
+```
+sudo xmutil unloadapp
+sudo xmutil loadapp kv260_rpicamera_to_dp
+sudo ./setup_v4l2.sh 
+sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap !   "video/x-raw, width=1920, height=1080, format=BGRx" !   videoconvert ! x264enc tune=zerolatency !   mpegtsmux ! udpsink host=<HOST_IP> port=5000
+```
+
+**Stream 640x480**:
+
+KV260:
+```
+sudo xmutil unloadapp
+sudo xmutil loadapp kv260_rpicamera_to_dp
+sudo ./setup_v4l2.sh 
+sudo media-ctl -V "\"a0080000.v_proc_ss\":1 [fmt:RBG888_1X24/640x480 field:none]"
+sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! \
+  "video/x-raw, width=640, height=480, format=BGRx" ! \
+  videoconvert ! \
+  x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000 ! \
+  mpegtsmux ! udpsink host=<HOST_IP> port=5000
+```
+
+## Section 5 - Future work
+
+Improvement 1. Solve performance issues when streaming to display port using GStreamer. The current pipeline configuration used is not optimal (though it was the only was I could get it to work for now). I need to find a way to configure the pipeline so that it doesn't require format conversion via software or uses legacy sink.
+
+Improvement 2. Add a direct path from PL to DisplayPort.
+- PL: replace frame buffer with: Video Mixer -> Video Timing Controller (VTC) -> Live DP interface
+  - Video Mixer: takes the AXI-Stream from your Broadcaster and converts it into a format the DisplayPort hardware understands. Enable the "Live Video Input" port in its configuration.
+  - Video Timing Controller (VTC): requires physical sync signals (HSYNC, VSYNC, Data Enable). The VTC generates these based on your target resolution (e.g., 1080p60).
+  - Enable Live DP in Zynq MPSoC block configuration.
+  - Check if the device tree includes everything properly.
+- PS:
+  - Check if there are drivers to control video mixer and VTC.
+  - Stream video to the DisplayPort output via GStreamer. We need to tell the Xilinx DRM driver to activate the hardware overlay plane (usually Plane 39 on the KV260)
+  ```bash
+  gst-launch-1.0 v4l2src device=/dev/video0 ! \
+  "video/x-raw, width=1920, height=1080, format=NV12" ! \
+  kmssink driver-name=xlnx plane-id=39 sync=false
+  ```
+
+Improvement 3. Add VCU encoder to PL to enable hardware-accelerated video encoding and improve streaming performance.
