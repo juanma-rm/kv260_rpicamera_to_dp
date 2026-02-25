@@ -74,68 +74,33 @@ KV260_IMX477_CAMERA
 
 ### Xilinx Smart Camera Project: analysis of video pipeline
 
-**Phase 1: Activate the Hardware Logic (PL)**
+- Load FPGA platform. It uses xmutil to load the "overlay" (bitstream) that must be loaded into the FPGA before any video device (`/dev/video*`) will exist. The default `kv260-smartcam` overlay connects the MIPI sensor (AR1335) through an ISP (AP1302) to memory. 
+- Media Graph: 
+  - **Media Controller Framework** (`media-ctl`) to link hardware blocks inside the FPGA.
+  ```bash
+  # Visualize the media graph. You will see a chain like: `ar1335` (Sensor) -> `ap1302` (ISP) -> `mipi_csi2_rx_subsystem` -> `video_mipi` (DMA Write).
+  media-ctl -d /dev/media0 -p
 
-The KV260 uses "overlays" (bitstreams) that must be loaded into the FPGA before any video device (`/dev/video*`) will exist. The default `kv260-smartcam` overlay connects the MIPI sensor (AR1335) through an ISP (AP1302) to memory.
+  # Manual configuration. The `mediasrcbin` element in GStreamer usually handles this, but if you were doing this purely manually, you would use `media-ctl -V` to set the formats on the pads.
+  media-ctl -V '"ar1335 2-003c":0 [fmt:SRGGB10_1X10/1920x1080 field:none]'
+  ```
+- DisplayPort (DRM/KMS) Configuration. The DisplayPort on Xilinx SoCs is managed by the Direct Rendering Manager (DRM). It writes to a specific hardware **Video Plane**.
+  ```bash
+  # Find the plane ID. The generic commands often use `plane-id=39`, but this can change based on the kernel version. Run this to find the correct ID:
+  # Look for "Planes". Find one that supports `NV12` format (this is the native format of the video pipeline).
+  # Note the **ID** of that plane (e.g., 34, 35, 39).
+  modetest -M xlnx -p
 
-Load platform:
-```bash
-sudo xmutil unloadapp
-sudo xmutil loadapp kv260-smartcam
-ls /dev/video* # should show /dev/video0; if not, the hardware overlay didn't load correctly
-```
-
-**Phase 2: "Digging Deeper" - The Media Graph**
-
-Xilinx uses the **Media Controller Framework** (`media-ctl`) to link hardware blocks inside the FPGA.
-
-```bash
-# Visualize the media graph. You will see a chain like: `ar1335` (Sensor) -> `ap1302` (ISP) -> `mipi_csi2_rx_subsystem` -> `video_mipi` (DMA Write).
-media-ctl -d /dev/media0 -p
-
-# Manual configuration. The `mediasrcbin` element in GStreamer usually handles this, but if you were doing this purely manually, you would use `media-ctl -V` to set the formats on the pads.
-media-ctl -V '"ar1335 2-003c":0 [fmt:SRGGB10_1X10/1920x1080 field:none]'
-```
-
-**Phase 3: The DisplayPort (DRM/KMS) Configuration**
-
-The DisplayPort on Xilinx SoCs is managed by the Direct Rendering Manager (DRM). You cannot just "stream to a file path." You must write to a specific hardware **Video Plane**.
-
-```bash
-# Find the plane ID. The generic commands often use `plane-id=39`, but this can change based on the kernel version. Run this to find the correct ID:
-# Look for "Planes". Find one that supports `NV12` format (this is the native format of the video pipeline).
-# Note the **ID** of that plane (e.g., 34, 35, 39).
-modetest -M xlnx -p
-
-# Check Connectivity. Ensure the status is `connected` for the DP/HDMI connector.
-modetest -M xlnx -c
-```
-    
-**Phase 4: The Manual GStreamer Command**
-
-This is the command that bypasses the high-level Python scripts and streams directly from the hardware driver (`v4l2src`) to the display driver (`kmssink`).
-
-```bash
-gst-launch-1.0 \
-  mediasrcbin media-device=/dev/media0 v4l2src0::io-mode=mmap ! \
-  video/x-raw, width=1920, height=1080, format=NV12, framerate=30/1 ! \
-  kmssink driver-name=xlnx plane-id=39 fullscreen-overlay=true sync=false
-```
-
-- `mediasrcbin`: A Xilinx-specific plugin. It automatically negotiates the `media-ctl` links discussed in Phase 2 so you don't have to write a 10-line script to link pads.
-- `media-device=/dev/media0`: Tells GStreamer which hardware graph to configure (the MIPI pipeline).
-- `v4l2src0::io-mode=mmap`: Uses "Zero-Copy" memory mapping. Crucial for performance; otherwise, the CPU tries to copy 1080p frames and chokes.
-- `video/x-raw, ... format=NV12`: **Critical.** The hardware ISP outputs NV12. If you ask for RGB, the CPU has to convert it, killing performance. The DisplayPort controller *natively* supports NV12, allowing a direct hardware-to-hardware path.
-- `kmssink`: The "Kernel Mode Setting" sink. This is the modern Linux way to display video.
-  - `driver-name=xlnx`: Forces usage of the Xilinx DRM driver.
-  - `plane-id=39`: The hardware layer to draw on (found in Phase 3).
-  - `sync=false`: Disables clock synchronization. Useful for live feeds to reduce latency (drops frames rather than waiting).
-
-### Troubleshooting
-- "Device or resource busy": Another process (like the default X11 desktop or a running Docker container) is holding the display.
-    *   *Fix:* Kill the desktop: `sudo xmutil desktop_disable`
-- Green/Garbage screen: Usually a format mismatch. Ensure you are specifying `format=NV12` in the caps filter.
-- Permission Denied: You likely need `sudo` or to add your user to the `video` and `render` groups.
+  # Check Connectivity. Ensure the status is `connected` for the DP/HDMI connector.
+  modetest -M xlnx -c
+  ```
+- Stream the video pipeline via GStreamer: this command bypasses the high-level Python scripts and streams directly from the hardware driver (`v4l2src`) to the display driver (`kmssink`).
+  ```bash
+  gst-launch-1.0 \
+    mediasrcbin media-device=/dev/media0 v4l2src0::io-mode=mmap ! \
+    video/x-raw, width=1920, height=1080, format=NV12, framerate=30/1 ! \
+    kmssink driver-name=xlnx plane-id=39 fullscreen-overlay=true sync=false
+  ```
 
 ---
 
@@ -813,7 +778,32 @@ Xilinx Video Composite Device (platform:xilinx-video):
 
 This section covers configuring the V4L2 media graph (format propagation across all subdevices), tuning the Gamma LUT, and streaming video to the DisplayPort output via GStreamer.
 
-### Configure media graph
+Video flow in software:
+
+Video Frame Buffer Write (Hardware - PL)
+     │ Writes the raw video pixels (RGB888) via Direct Memory Access (DMA)
+     │ into standard system DDR Memory.
+     ▼
+V4L2 Driver (Kernel)
+     │ The Linux subsystem that tracks where those frames are stored in DDR memory.
+     ▼
+v4l2src (GStreamer - Userspace)
+     │ Claims the memory buffer. With io-mode=mmap, it doesn't copy
+     │ the pixels; it just passes the memory pointer down the pipeline.
+     ▼
+kmssink (GStreamer - Userspace)
+     │ Receives the pointer and tells the Linux display driver: "Put the frame
+     │ located at this memory address onto hardware Plane 40."
+     ▼
+DRM/KMS Driver (Kernel)
+     │ The Direct Rendering Manager driver programs the registers of the actual
+     │ hardware DisplayPort controller.
+     ▼
+DisplayPort Controller (Hardware - PS)
+       Reads the pixels directly from the DDR memory address provided and outputs
+       the electrical signal to your monitor.
+
+### Configure media graph and stream to display
 
 The process to **configure the media graph and stream video to the DisplayPort output via GStreamer** is as follows:
 1. Configure the media graph using `media-ctl` and `v4l2-ctl` commands.
@@ -824,24 +814,195 @@ See `sw\setup_v4l2.sh` for the commands to configure the media graph.
 ```bash
 sudo xmutil unloadapp
 sudo xmutil loadapp kv260_rpicamera_to_dp
-sudo xmutil desktop_disable # We need to disable the desktop environment
+# Expected in the external display before desktop_disable: ubuntu GUI
+sudo xmutil desktop_disable # We need to disable the desktop environment. To re-enable desktop later: sudo xmutil desktop_enable
+# Expected in the external display after desktop_disable: tty terminal
 sudo ./setup_v4l2.sh 
-sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! "video/x-raw, width=1920, height=1080, format=BGRx" ! videoconvert ! fbdevsink device=/dev/fb0 sync=false
+
+# Stream to display
+sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! "video/x-raw, width=2560, height=1440, format=RGB" ! kmssink driver-name=xlnx plane-id=40 sync=false
+
+# Capture screenshots:
+sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=4 num-buffers=5 ! video/x-raw,width=2560,height=1440,format=BGRx ! videoconvert ! jpegenc ! multifilesink location=capture_%d.jpeg
 ```
+
+### GStreamer gst-launch-1.0
+
+`gst-launch-1.0` is a command-line tool used to build and run GStreamer media pipelines.
+
+**Syntax**: `gst-launch-1.0 [OPTIONS] PIPELINE-DESCRIPTION`
+
+**Key Symbols in Pipelines**
+- `!` (Exclamation Mark): Links two elements together (the "plug").
+- ` ` Space: Separates elements and their properties.
+- `.` (Dot): Used to reference named elements or pads (e.g., my_mux.video_sink).
+
+**Source Elements & Parameters**:
+- Source types:
+  - `v4l2src` - Video4Linux2 source (captures from camera devices)
+  - `mediasrcbin` - Media controller source bin (Xilinx-specific, auto-configures media graph, no need to run the `setup_v4l2.sh` file)
+  - `filesrc` - Reads from files
+  - `videotestsrc` - Generates test patterns
+  - `udpsrc` - Network UDP source
+- `device=/dev/video0` - Specifies the camera device node to use
+- `io-mode=mmap` - Memory-mapped I/O (zero-copy between kernel and userspace)
+- `io-mode=dmabuf` - DMA buffer sharing (ideal for passing zero-copy buffers directly to hardware encoders or displays)
+- `num-buffers=5` - Pipeline automatically stops after capturing this many frames
+- `do-timestamp=true` - Attaches hardware/system timestamps to frames (crucial for latency measurement and A/V sync)
+
+**Format Negotiation (Caps)**:
+- `"video/x-raw, width=1920, height=1080, format=BGRx"` - Forces specific formats
+- `video/x-raw` - Uncompressed, raw video frames (as opposed to encoded formats like H.264 or JPEG)
+- `framerate=30/1` - Negotiates a specific frame rate (e.g., 30 fps)
+- `format=NV12` - Native hardware format for KV260 DisplayPort and VPSS blocks (avoids software conversion)
+
+**Processing & Buffering Elements**:
+- `videoconvert` - Software format conversion (CPU intensive; avoid if hardware supports native formats)
+- `queue` - Creates a new thread and buffers data. Vital in complex pipelines to prevent one slow element from stalling the whole pipeline
+- `max-size-buffers=3` - Limits the queue size to reduce latency buildup
+- `videorate` - Drops or duplicates frames to match a requested downstream framerate
+
+**Hardware Accelerators (KV260 Specific)**:
+- `v4l2h264enc` (or `omxh264enc`) - Uses the Zynq UltraScale+ VCU (Video Codec Unit) for hardware H.264 encoding
+- `h264parse` - Parses the encoded H.264 stream for packaging (required before muxing)
+- `mp4mux` - Packages H.264 video into an MP4 container
+
+**Sinks (Outputs)**:
+- **Displays:**
+  - `fbdevsink device=/dev/fb0` - Linux framebuffer sink writing to /dev/fb0 (DisplayPort)
+    - `kmssink` - Modern DRM/KMS interface with hardware acceleration (recommended)
+    - `autovideosink` - Auto-detect best available display sink
+    - `glimagesink` - OpenGL hardware acceleration (GUI environments)
+    - `ximagesink` - X11 display output (not recommended for embedded)
+    - `vaapisink` - VAAPI hardware acceleration (Intel GPU specific)
+    - `waylandsink` - Wayland display server (modern alternative to X11)
+  - `kmssink` - Direct hardware rendering using DRM/KMS (Zero-copy)
+  - `fpsdisplaysink video-sink="kmssink"` - Wraps a video sink and overlays the real-time frames-per-second (FPS) on the screen. Excellent for debugging performance
+  - `appsink` - Captures frames and passes them to user applications (like OpenCV in Python/C++)
+- **Files:**
+  - `multifilesink location=frame_%04d.jpg` - Saves each frame as a sequentially numbered file
+  - `filesink location=video.mp4` - Saves the stream to a single file
+
+**Advanced Sink Properties (Low Latency & KMS)**:
+- `sync=false` - Sink plays frames immediately as they arrive, ignoring timestamps (lowest latency)
+- `async=false` - Does not wait for a state change to complete before continuing, speeding up pipeline start time
+- `qos=true` - Enables Quality of Service. The sink tracks latency and tells upstream elements (like the source or decoder) to drop frames if it falls behind
+
+**kmssink Specifics**:
+- `driver-name=xlnx` - Forces GStreamer to use the Xilinx DRM driver
+- `plane-id=39` - Targets a specific hardware overlay plane (Plane 39 is typically the KV260 Live DP input)
+- `fullscreen-overlay=true` - Bypasses standard window managers to draw directly to the screen
 
 ### Verify media graph configuration
 
 The following **commands can be used to verify the media graph configuration**:
 
+**Check media topology after setup_v4l2.sh**:
+
 ```bash
-# Check media topology
 media-ctl -p
- 
-# Check video device formats
+
+# Expected output
+
+Media controller API version 5.15.136
+
+Media device information
+------------------------
+driver          xilinx-video
+model           Xilinx Video Composite Device
+serial
+bus info
+hw revision     0x0
+driver version  5.15.136
+
+Device topology
+- entity 1: vcap_v_proc_ss_scaler output 0 (1 pad, 1 link)
+            type Node subtype V4L flags 0
+            device node name /dev/video0
+        pad0: Sink
+                <- "a0080000.v_proc_ss":1 [ENABLED]
+
+- entity 5: a0030000.v_proc_ss (2 pads, 2 links)
+            type V4L2 subdev subtype Unknown flags 0
+            device node name /dev/v4l-subdev0
+        pad0: Sink
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                <- "a0020000.v_gamma_lut":1 [ENABLED]
+        pad1: Source
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                -> "a0080000.v_proc_ss":0 [ENABLED]
+
+- entity 8: a0020000.v_gamma_lut (2 pads, 2 links)
+            type V4L2 subdev subtype Unknown flags 0
+            device node name /dev/v4l-subdev1
+        pad0: Sink
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                <- "a0010000.v_demosaic":1 [ENABLED]
+        pad1: Source
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                -> "a0030000.v_proc_ss":0 [ENABLED]
+
+- entity 11: a0010000.v_demosaic (2 pads, 2 links)
+             type V4L2 subdev subtype Unknown flags 0
+             device node name /dev/v4l-subdev2
+        pad0: Sink
+                [fmt:SBGGR10_1X10/1920x1080 field:none]
+                <- "a0000000.mipi_csi2_rx_subsystem":1 [ENABLED]
+        pad1: Source
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                -> "a0020000.v_gamma_lut":0 [ENABLED]
+
+- entity 14: a0080000.v_proc_ss (2 pads, 2 links)
+             type V4L2 subdev subtype Unknown flags 0
+             device node name /dev/v4l-subdev3
+        pad0: Sink
+                [fmt:RBG888_1X24/1920x1080 field:none]
+                <- "a0030000.v_proc_ss":1 [ENABLED]
+        pad1: Source
+                [fmt:RBG888_1X24/2560x1440 field:none]
+                -> "vcap_v_proc_ss_scaler output 0":0 [ENABLED]
+
+- entity 17: a0000000.mipi_csi2_rx_subsystem (2 pads, 2 links)
+             type V4L2 subdev subtype Unknown flags 0
+             device node name /dev/v4l-subdev4
+        pad0: Sink
+                [fmt:SBGGR10_1X10/1920x1080 field:none]
+                <- "ov5647 6-0036":0 [ENABLED]
+        pad1: Source
+                [fmt:SBGGR10_1X10/1920x1080 field:none]
+                -> "a0010000.v_demosaic":0 [ENABLED]
+
+- entity 20: ov5647 6-0036 (1 pad, 1 link)
+             type V4L2 subdev subtype Sensor flags 0
+             device node name /dev/v4l-subdev5
+        pad0: Source
+                [fmt:SBGGR10_1X10/1920x1080 field:none colorspace:srgb
+                 crop.bounds:(16,16)/2592x1944
+                 crop:(364,450)/1928x1080]
+                -> "a0000000.mipi_csi2_rx_subsystem":0 [ENABLED]
+```
+
+**Check video device formats**:
+```bash
 v4l2-ctl -d /dev/video0 --list-formats-ext
- 
-# Verify device nodes
+
+# Expected output
+
+ioctl: VIDIOC_ENUM_FMT
+        Type: Video Capture Multiplanar
+
+        [0]: 'RX24' (32-bit XBGR 8-8-8-8)
+        [1]: 'XR24' (32-bit BGRX 8-8-8-8)
+        [2]: 'RGB3' (24-bit RGB 8-8-8)
+        [3]: 'BGR3' (24-bit BGR 8-8-8)
+```
+
+**Verify device nodes**:
+```bash
 ls -l /dev/video* /dev/media*
+
+crw-rw----+ 1 root video 246, 0 Feb 25 12:08 /dev/media0
+crw-rw----+ 1 root video  81, 0 Feb 25 12:08 /dev/video0
 ```
 
 Expected:
@@ -849,6 +1010,79 @@ Expected:
 - Entity names use the hex base address without the `0x` prefix (e.g., `a0020000.v_demosaic`).
 - The `N` in `ov5647 N-0036` is the Linux I2C adapter number of the PCA9546 channel 2 sub-bus — find it with `i2cdetect -l` or `dmesg | grep "Added multiplexed"`.
 - All links must show `[ENABLED]`.
+
+**Verify the sink kmssink (display port controller) state:**
+
+This command dumps the real-time atomic state of the Linux DRM/KMS (Direct Rendering Manager / Kernel Mode Setting) subsystem. It corresponds to the very end of the chain: the software kmssink element and the hardware DisplayPort Controller. Specifically, it shows the configuration of four core DRM hardware elements:
+- Planes (e.g., plane[40]): Hardware overlay layers. They fetch the pixel data from DDR memory (where your Video Frame Buffer Write deposited it). The output shows the memory address, resolution, and expected pixel format (like RG16).
+- CRTCs (e.g., crtc-0): The actual hardware display controller (Cathode Ray Tube Controller). It takes the planes, blends them together, and applies the display timings (e.g., 2560x1440 @ 60Hz).
+- Encoders: The hardware that converts the CRTC's raw pixel stream into the specific electrical signaling needed for the output.
+- Connectors (e.g., DP-1): The physical DisplayPort on the KV260 board. It handles monitor detection (plugged/unplugged) and reads the monitor's supported resolutions (EDID).
+
+```bash
+sudo cat /sys/kernel/debug/dri/0/state
+
+# Expected output (after sudo xmutil desktop_disable). 2560x1440 @ 60Hz, Plane 40 locked into RG16 (RGB565), text console (fbcon) currently using the screen
+plane[39]: plane-0
+        crtc=(null)
+        fb=0
+        crtc-pos=0x0+0+0
+        src-pos=0.000000x0.000000+0.000000+0.000000
+        rotation=1
+        normalized-zpos=0
+        color-encoding=ITU-R BT.601 YCbCr
+        color-range=YCbCr limited range
+plane[40]: plane-1
+        crtc=crtc-0
+        fb=46
+                allocated by = [fbcon]
+                refcount=2
+                format=RG16 little-endian (0x36314752)
+                modifier=0x0
+                size=2560x2880
+                layers:
+                        size[0]=2560x2880
+                        pitch[0]=5120
+                        offset[0]=0
+                        obj[0]:
+                                name=0
+                                refcount=1
+                                start=00100000
+                                size=14745600
+                                imported=no
+                                paddr=0x0000000036200000
+                                vaddr=0000000035f8a4c5
+        crtc-pos=2560x1440+0+0
+        src-pos=2560.000000x1440.000000+0.000000+0.000000
+        rotation=1
+        normalized-zpos=0
+        color-encoding=ITU-R BT.601 YCbCr
+        color-range=YCbCr limited range
+crtc[41]: crtc-0
+        enable=1
+        active=1
+        self_refresh_active=0
+        planes_changed=1
+        mode_changed=0
+        active_changed=0
+        connectors_changed=0
+        color_mgmt_changed=0
+        plane_mask=2
+        connector_mask=1
+        encoder_mask=1
+        mode: "2560x1440": 60 241500 2560 2608 2640 2720 1440 1443 1448 1481 0x48 0x9
+connector[43]: DP-1
+        crtc=crtc-0
+        self_refresh_aware=0
+        max_requested_bpc=0
+```
+
+### Verify kmssink and external display
+
+Run a video test with standard color bar pattern to verify the DRM/KMS configuration is correct:
+```bash
+sudo gst-launch-1.0 videotestsrc !   video/x-raw, width=1920, height=1080, format=RGB !   videoscale ! video/x-raw, width=2560, height=1440 !   kmssink driver-name=xlnx plane-id=40 sync=false
+```
 
 ### Stream video to DisplayPort or take screenshots 
 
@@ -862,60 +1096,8 @@ sudo gst-launch-1.0 -v v4l2src device=/dev/video0 ! \
   queue ! \
   fpsdisplaysink video-sink=kmssink text-overlay=false sync=false
 
-#Check file was created (check appropriate size):
+# Check file was created (check appropriate size):
 ls -lh test.png
-```
-
-#### Handling no-GUI mode
-
-Streaming output to the display requires setting the system in console mode (no GUI) (One-Time Configuration)
-
-```bash
-
-
-# Option 1. Via xmutil
-
-sudo xmutil desktop_disable
-
-# To re-enable desktop later:
-# sudo xmutil desktop_enable
-
-# Option 2. Via systemctl
-
-# Set system to boot to console mode (no desktop environment)
-sudo systemctl set-default multi-user.target
-sudo reboot
-
-# To re-enable desktop later:
-# sudo systemctl set-default graphical.target
-# sudo reboot
-
-```
-
-Other commands that could be useful for handling the display when running in console mode (shouldn't be necessary with the commands above) 
-```bash
-# Stop the getty service on tty1
-sudo systemctl stop getty@tty1
-
-# List processes accessing DRM device
-sudo fuser -v /dev/dri/card0
-
-# Unbind both virtual consoles
-echo 0 | sudo tee /sys/class/vtconsole/vtcon0/bind
-echo 0 | sudo tee /sys/class/vtconsole/vtcon1/bind
-
-# Clear the framebuffer
-sudo dd if=/dev/zero of=/dev/fb0 bs=1M count=50 2>/dev/null
-
-# Blank the framebuffer device
-echo 0 | sudo tee /sys/class/graphics/fb0/blank
-
-### Check DRM/KMS Plane Status. View current plane configuration
-sudo cat /sys/kernel/debug/dri/0/state
-# Look for:
-# - plane[39]: Graphics plane (should be used by video)
-# - plane[40]: Video plane (may be used by fbcon)
-# - Check which plane has fb allocated and by whom
 ```
 
 ---
@@ -968,7 +1150,7 @@ sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! \
 
 ## Section 5 - Future work
 
-Improvement 1. Solve performance issues when streaming to display port using GStreamer. The current pipeline configuration used is not optimal (though it was the only was I could get it to work for now). I need to find a way to configure the pipeline so that it doesn't require format conversion via software or uses legacy sink.
+(SOLVED) Improvement 1. Solve performance issues when streaming to display port using GStreamer. The current pipeline configuration used is not optimal (though it was the only was I could get it to work for now). I need to find a way to configure the pipeline so that it doesn't require format conversion via software or uses legacy sink.
 
 Improvement 2. Add a direct path from PL to DisplayPort.
 - PL: replace frame buffer with: Video Mixer -> Video Timing Controller (VTC) -> Live DP interface

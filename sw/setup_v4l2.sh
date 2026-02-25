@@ -33,26 +33,27 @@ readonly VIDEO_DEVICE="/dev/video0"
 # Format Constants
 readonly SENSOR_FORMAT="SBGGR10_1X10"
 readonly RGB_FORMAT="RBG888_1X24"
-readonly RESOLUTION="1920x1080"
+readonly RESOLUTION_SENSOR="1920x1080"
+readonly RESOLUTION_DISPLAY="2560x1440"
 readonly FIELD_SETTING="field:none"
 
 echo "=== KV260 OV5647 Camera Setup Script ==="
-echo "Note: Run 'sudo xmutil loadapp kv260_rpicamera_to_dp' before this script"
+echo "Note: Run 'sudo xmutil desktop_disable' and 'sudo xmutil loadapp kv260_rpicamera_to_dp' before this script"
 echo ""
 
 # 1. Configure V4L2 pipeline formats
 echo "=== Configuring Pipeline Formats ==="
-media-ctl -V "\"${SENSOR_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${MIPI_CSI_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${MIPI_CSI_ENTITY}\":1 [fmt:${SENSOR_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${DEMOSAIC_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${DEMOSAIC_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${GAMMA_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${GAMMA_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${CSC_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${CSC_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${SCALER_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
-media-ctl -V "\"${SCALER_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION} ${FIELD_SETTING}]"
+media-ctl -V "\"${SENSOR_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${MIPI_CSI_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${MIPI_CSI_ENTITY}\":1 [fmt:${SENSOR_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${DEMOSAIC_ENTITY}\":0 [fmt:${SENSOR_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${DEMOSAIC_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${GAMMA_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${GAMMA_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${CSC_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${CSC_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${SCALER_ENTITY}\":0 [fmt:${RGB_FORMAT}/${RESOLUTION_SENSOR} ${FIELD_SETTING}]"
+media-ctl -V "\"${SCALER_ENTITY}\":1 [fmt:${RGB_FORMAT}/${RESOLUTION_DISPLAY} ${FIELD_SETTING}]"
 
 # 2. Enable pipeline links
 echo "=== Enabling Pipeline Links ==="
@@ -78,17 +79,22 @@ v4l2-ctl -d /dev/v4l-subdev0 --set-ctrl=red_gamma_correction_1_0_1_10=12 2>/dev/
 v4l2-ctl -d /dev/v4l-subdev0 --set-ctrl=blue_gamma_correction_1_0_1_10=12 2>/dev/null || true
 v4l2-ctl -d /dev/v4l-subdev0 --set-ctrl=green_gamma_correction_1_0_1_1=10 2>/dev/null || true
 
-# 6. Verify video device
+# 6. Configure video device node for 1440p RGB
+echo "=== Configuring Video Node ==="
+v4l2-ctl -d ${VIDEO_DEVICE} --set-fmt-video=width=2560,height=1440,pixelformat=RGB3
+
+# 7. Verify video device
 echo "=== Verifying Video Device ==="
 v4l2-ctl -d ${VIDEO_DEVICE} --list-formats
+v4l2-ctl -d ${VIDEO_DEVICE} --get-fmt-video
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "=== Test Commands ==="
-echo "# Live video to DP display:"
-echo "sudo gst-launch-1.0 v4l2src device=${VIDEO_DEVICE} io-mode=mmap ! \"video/x-raw, width=${RESOLUTION%x*}, height=${RESOLUTION#*x}, format=BGRx\" ! videoconvert ! fbdevsink device=/dev/fb0 sync=false"
+echo "# Live video to DP display, zero-copy, 1440p RGB, kmssink, plane 40:"
+echo "sudo gst-launch-1.0 v4l2src device=${VIDEO_DEVICE} io-mode=mmap ! \"video/x-raw, width=${RESOLUTION_DISPLAY%x*}, height=${RESOLUTION_DISPLAY#*x}, format=RGB\" ! kmssink driver-name=xlnx plane-id=40 sync=false"
 echo ""
 echo "# Screenshot capture (skip first frames for exposure settling):"
-echo "gst-launch-1.0 v4l2src device=${VIDEO_DEVICE} io-mode=4 num-buffers=5 ! video/x-raw,width=${RESOLUTION%x*},height=${RESOLUTION#*x},format=BGRx ! videoconvert ! jpegenc ! multifilesink location=capture_%d.jpeg"
+echo "sudo gst-launch-1.0 v4l2src device=${VIDEO_DEVICE} io-mode=4 num-buffers=5 ! video/x-raw,width=${RESOLUTION_DISPLAY%x*},height=${RESOLUTION_DISPLAY#*x},format=BGRx ! videoconvert ! jpegenc ! multifilesink location=capture_%d.jpeg"
 echo ""
