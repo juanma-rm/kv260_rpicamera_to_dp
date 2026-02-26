@@ -53,10 +53,13 @@ VPSS Scaler (Hardware Scaling)
 Video Frame Buffer Write
      │ (AXI DMA, DDR Memory)
      ▼
+VCU (Video Codec Unit)
+     │ (H.264/H.265 Hardware Encoding)
+     ▼
 Linux V4L2 Driver (/dev/video0)
 ```
 
-The resulting Vivado block diagram is shown below.
+The resulting Vivado block diagram is shown below (VCU missing)
 
 <img src="pics/block_design_part_1.png" alt="block_design_part_1" width="1000">
 <img src="pics/block_design_part_2.png" alt="block_design_part_2" width="1000">
@@ -72,6 +75,7 @@ The resulting Vivado block diagram is shown below.
 - **VPSS CSC** - Color space conversion (RGB888 input/output)
 - **VPSS Scaler** - Hardware up/down scaling (RGB888)
 - **Video Frame Buffer Write** - Memory DMA supporting multiple formats including NV12
+- **VCU (Video Codec Unit)** - Hardware H.264/H.265 encoding/decoding with low-latency streaming support
 
 **Control & Support IPs:**
 - **AXI IIC** - I2C controller for camera communication via PCA9546 mux
@@ -97,6 +101,23 @@ The camera module used is the Raspberry Camera module 1. It features an OV5647 s
 | **Power Supply** | Core 1.5V, Analog 2.6–3.0V, I/O 1.7–3.0V |
 
 Current config: 2-lane MIPI CSI-2 interface with RAW10 output format.
+
+### VCU (Video Codec Unit)
+
+Hardware-accelerated H.264/H.265 video encoder/decoder for ultra-low latency streaming applications.
+
+[H.264/H.265 Video Codec Unit v1.2 Solutions LogiCORE IP Product Guide (PG252)](https://docs.xilinx.com/r/en-US/pg252-vcu)
+
+| Specification | Value |
+|---------------|-------|
+| **Codec Support** | H.264 (AVC), H.265 (HEVC) |
+| **Max Resolution** | 4K @ 60fps (H.265), 1080p @ 60fps (H.264) |
+| **H.264 Levels** | 1.0 - 4.2 (1080p30) |
+| **H.265 Levels** | 1.0 - 5.1 (4K) |
+| **Bitrate Range** | 1 - 40 Mbps |
+| **Profiles** | H.264: Baseline, Main, High<br>H.265: Main, Main 10 |
+
+Current config: H.264 encoder only, 4k@30fps max, 8bpc.
 
 ### MIPI CSI-2 RX Subsystem
 
@@ -281,11 +302,14 @@ python output/build_vivado_proj.py --target all --dev-flow vivado_accelerator \
 
 **One-Time Setup (from KV260):**
 ```bash
-# Install required packages
+# Install Xilinx PPA and required packages for VCU
+sudo add-apt-repository ppa:ubuntu-xilinx/updates
+sudo add-apt-repository ppa:xilinx-apps/ppa
 sudo apt update
 sudo apt install -y linux-headers-$(uname -r) v4l-utils yavta i2c-tools device-tree-compiler
-sudo apt install -y gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-xilinx
+sudo apt install -y gstreamer-xilinx1.0-tools gstreamer-xilinx1.0-plugins-good gstreamer-xilinx1.0-plugins-bad gstreamer-xilinx1.0-omx-zynqmp
 sudo apt install -y libdrm-xlnx-dev build-essential
+sudo apt install -y v4l-utils-xlnx
 
 # Build and install patched OV5647 driver
 cd sw/ov5647_driver_patched
@@ -295,21 +319,44 @@ sudo depmod -a
 ```
 
 **Quick Start (from KV260):**
-```bash
-# Load hardware overlay
-sudo xmutil unloadapp
-sudo xmutil loadapp kv260_rpicamera_to_dp
 
-# Configure the pipeline
-sudo chmod +x sw/setup_v4l2.sh
-sudo ./sw/setup_v4l2.sh
+1)  Load hardware overlay:
+    ```bash
+    sudo xmutil unloadapp
+    sudo xmutil loadapp kv260_rpicamera_to_dp
+    ```
 
-# Stream video to display (1440p)
-sudo xmutil desktop_disable # Disable desktop to free display resources
-udo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! \
-  video/x-raw, width=2560, height=1440, format=RGB ! \
-  kmssink driver-name=xlnx plane-id=40 sync=false
-```
+2) Option A. Stream to DisplayPort (1440p):
+     ```bash
+     sudo chmod +x sw/setup_v4l2.sh
+     sudo ./sw/setup_v4l2.sh
+     sudo xmutil desktop_disable # Disable desktop to free display resources
+     sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! \
+     video/x-raw, width=2560, height=1440, format=RGB ! \
+     kmssink driver-name=xlnx plane-id=40 sync=false
+     ```
+
+3) Option B. Stream over network (1080p, VCU hardware encoding, multicast, ~300-400ms latency)
+     ```bash
+     # From KV260
+     sudo ufw disable
+     sudo chmod +x sw/setup_vcu_udp.sh
+     sudo ./sw/setup_vcu_udp.sh
+     sudo gst-launch-1.0 -v v4l2src device=/dev/video0 io-mode=mmap ! \
+     "video/x-raw, width=1920, height=1080, format=NV12, framerate=30/1" ! \
+     omxh264enc target-bitrate=6000 control-rate=low-latency prefetch-buffer=true \
+     gop-length=3 b-frames=0 periodicity-idr=3 num-slices=8 ! \
+     "video/x-h264, profile=main, level=(string)4.2, alignment=au" ! \
+     h264parse config-interval=1 ! rtph264pay config-interval=1 pt=96 mtu=1200 ! \
+     udpsink host=224.1.1.1 port=5000 auto-multicast=true ttl-mc=1 sync=false async=false
+     ```
+     ```powershell
+     # From client, connect to multicast with: 
+     # Windows
+     & "C:\Program Files\VideoLAN\VLC\vlc.exe" sw\stream_multicast.sdp --network-caching=30
+     # Linux
+     vlc sw/stream_multicast.sdp --network-caching=30
+     ```
 
 ## References <a id="References"></a>
 

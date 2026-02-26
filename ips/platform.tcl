@@ -32,7 +32,7 @@ set_property -dict [ list \
     CONFIG.PSU__USE__M_AXI_GP0 {1}                               \
     CONFIG.PSU__USE__M_AXI_GP1 {0}                               \
     CONFIG.PSU__USE__M_AXI_GP2 {0}                               \
-    CONFIG.PSU__USE__S_AXI_GP0 {0}                               \
+    CONFIG.PSU__USE__S_AXI_GP0 {1}                               \
     CONFIG.PSU__USE__S_AXI_GP2 {1}                               \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ $PL0_CLK_FREQ_MHZ \
     CONFIG.PSU__TTC0__PERIPHERAL__ENABLE {1}                     \
@@ -63,6 +63,9 @@ set_property -dict [ list \
     CONFIG.CLKOUT3_JITTER {102.086} \
     CONFIG.CLKOUT3_PHASE_ERROR {87.180} \
     CONFIG.CLKOUT4_DRIVES {Buffer} \
+    CONFIG.CLKOUT4_USED {true} \
+    CONFIG.CLK_OUT4_PORT {clk_50M} \
+    CONFIG.CLKOUT4_REQUESTED_OUT_FREQ {50.000} \
     CONFIG.CLKOUT5_DRIVES {Buffer} \
     CONFIG.CLKOUT6_DRIVES {Buffer} \
     CONFIG.CLKOUT7_DRIVES {Buffer} \
@@ -89,6 +92,7 @@ set_property -dict [ list \
 set ps_reset_100M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_100M ]
 set ps_reset_200M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_200M ]
 set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_300M ]
+set ps_reset_50M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 ps_reset_50M ]
 
 ##############################################################################
 # Interrupts (direct to PS GIC via pl_ps_irq0 — no axi_intc cascade)
@@ -97,7 +101,7 @@ set ps_reset_300M [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5
 
 set xlconcat_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0 ]
 set_property -dict [ list \
-    CONFIG.NUM_PORTS {5} \
+    CONFIG.NUM_PORTS {6} \
 ] $xlconcat_0
 
 ##############################################################################
@@ -107,14 +111,20 @@ set_property -dict [ list \
 set axi_interc_hpm0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpm0 ]
 set_property -dict [ list \
     CONFIG.NUM_SI {1} \
-    CONFIG.NUM_MI {8} \
+    CONFIG.NUM_MI {9} \
 ] $axi_interc_hpm0
 
 set axi_interc_hp0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hp0 ]
 set_property -dict [ list \
-    CONFIG.NUM_SI {2} \
+    CONFIG.NUM_SI {1} \
     CONFIG.NUM_MI {1} \
 ] $axi_interc_hp0
+
+set axi_interc_hpc0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 axi_interc_hpc0 ]
+set_property -dict [ list \
+    CONFIG.NUM_SI {3} \
+    CONFIG.NUM_MI {1} \
+] $axi_interc_hpc0
 
 ##############################################################################
 # Fan control
@@ -171,15 +181,15 @@ set rpi_cam_en [ create_bd_port -dir O -from 0 -to 0 rpi_cam_en ]
 # The driver (xlnx_rebase_v5.15) requires reset-gpios in DT
 set axi_gpio_rst [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_rst ]
 set_property -dict [ list \
-    CONFIG.C_GPIO_WIDTH {6} \
+    CONFIG.C_GPIO_WIDTH {7} \
     CONFIG.C_ALL_OUTPUTS {1} \
-    CONFIG.C_DOUT_DEFAULT {0x3F} \
+    CONFIG.C_DOUT_DEFAULT {0x7F} \
 ] $axi_gpio_rst
 
 # Slice bit0 → demosaic reset
 set gpio_slice_demosaic [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_demosaic ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {0} \
     CONFIG.DIN_TO {0} \
     CONFIG.DOUT_WIDTH {1} \
@@ -188,7 +198,7 @@ set_property -dict [ list \
 # Slice bit1 → gamma reset
 set gpio_slice_gamma [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_gamma ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {1} \
     CONFIG.DIN_TO {1} \
     CONFIG.DOUT_WIDTH {1} \
@@ -197,7 +207,7 @@ set_property -dict [ list \
 # Slice bit2 → RPi camera enable/reset
 set gpio_slice_rpicam [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_rpicam ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {2} \
     CONFIG.DIN_TO {2} \
     CONFIG.DOUT_WIDTH {1} \
@@ -206,7 +216,7 @@ set_property -dict [ list \
 # Slice bit3 → scaler reset
 set gpio_slice_scaler [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_scaler ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {3} \
     CONFIG.DIN_TO {3} \
     CONFIG.DOUT_WIDTH {1} \
@@ -215,7 +225,7 @@ set_property -dict [ list \
 # Slice bit4 → frmbuf reset
 set gpio_slice_frmbuf [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_frmbuf ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {4} \
     CONFIG.DIN_TO {4} \
     CONFIG.DOUT_WIDTH {1} \
@@ -224,11 +234,20 @@ set_property -dict [ list \
 # Slice bit5 → CSC reset
 set gpio_slice_csc [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_csc ]
 set_property -dict [ list \
-    CONFIG.DIN_WIDTH {6} \
+    CONFIG.DIN_WIDTH {7} \
     CONFIG.DIN_FROM {5} \
     CONFIG.DIN_TO {5} \
     CONFIG.DOUT_WIDTH {1} \
 ] $gpio_slice_csc
+
+# Slice bit6 → VCU reset
+set gpio_slice_vcu [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 gpio_slice_vcu ]
+set_property -dict [ list \
+    CONFIG.DIN_WIDTH {7} \
+    CONFIG.DIN_FROM {6} \
+    CONFIG.DIN_TO {6} \
+    CONFIG.DOUT_WIDTH {1} \
+] $gpio_slice_vcu
 
 # MIPI CSI2 RX
 set mipi_csi2_rx_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem:6.0 mipi_csi2_rx_0 ]
@@ -328,6 +347,34 @@ set_property -dict [ list \
 ] $v_frmbuf_wr_0
 
 ##############################################################################
+# VCU (Video Codec Unit) - Decoder Only
+##############################################################################
+
+# VCU IP - Encoder configuration
+set vcu_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:vcu vcu_0 ]
+set_property -dict [ list \
+    CONFIG.ENABLE_DECODER {false} \
+    CONFIG.ENABLE_ENCODER {true} \
+    CONFIG.ENC_BUFFER_EN {true} \
+    CONFIG.ENC_BUFFER_MANUAL_OVERRIDE {1} \
+    CONFIG.ENC_BUFFER_SIZE {253} \
+    CONFIG.ENC_BUFFER_SIZE_ACTUAL {284} \
+    CONFIG.ENC_BUFFER_TYPE {0} \
+    CONFIG.ENC_CODING_TYPE {1} \
+    CONFIG.ENC_COLOR_DEPTH {0} \
+    CONFIG.ENC_COLOR_FORMAT {0} \
+    CONFIG.ENC_FPS {1} \
+    CONFIG.ENC_FRAME_SIZE {4} \
+    CONFIG.ENC_MEM_BRAM_USED {0} \
+    CONFIG.ENC_MEM_URAM_USED {284} \
+    CONFIG.NO_OF_STREAMS {1} \
+    CONFIG.TABLE_NO {2} \
+] $vcu_0
+
+# AXI Register Slice for VCU encoder/frame buffer to HPC0
+set axi_reg_slice_hpc0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_register_slice axi_reg_slice_hpc0 ]
+
+##############################################################################
 # Connections
 ##############################################################################
 
@@ -341,6 +388,7 @@ connect_bd_net $pl_clk0 [get_bd_pins clk_wiz_0/clk_in1]
 set clk_100M [get_bd_pins clk_wiz_0/clk_100M]
 set clk_200M [get_bd_pins clk_wiz_0/clk_200M]
 set clk_300M [get_bd_pins clk_wiz_0/clk_300M]
+set clk_50M [get_bd_pins clk_wiz_0/clk_50M]
 
 # ps_reset_100M
 set rst_100M [get_bd_pins ps_reset_100M/peripheral_reset]
@@ -360,14 +408,29 @@ set rstn_300M [get_bd_pins ps_reset_300M/peripheral_aresetn]
 connect_bd_net [get_bd_pins ps_reset_300M/slowest_sync_clk] $clk_300M
 connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_300M/ext_reset_in]
 
+# ps_reset_50M
+set rst_50M [get_bd_pins ps_reset_50M/peripheral_reset]
+set rstn_50M [get_bd_pins ps_reset_50M/peripheral_aresetn]
+connect_bd_net [get_bd_pins ps_reset_50M/slowest_sync_clk] $clk_50M
+connect_bd_net $pl_resetn0 [get_bd_pins ps_reset_50M/ext_reset_in]
+
 # zynq ultrascale
 connect_bd_net $clk_300M [get_bd_pins zynq_ultra_ps/maxihpm0_fpd_aclk]
 connect_bd_net $clk_300M [get_bd_pins zynq_ultra_ps/saxihp0_fpd_aclk]
+connect_bd_net $clk_300M [get_bd_pins zynq_ultra_ps/saxihpc0_fpd_aclk]
 
 # axi_interc_hp0
 connect_bd_net [get_bd_pins axi_interc_hp0/aclk] $clk_300M
 connect_bd_net [get_bd_pins axi_interc_hp0/aresetn] $rstn_300M
 connect_bd_intf_net [get_bd_intf_pins zynq_ultra_ps/S_AXI_HP0_FPD] [get_bd_intf_pins axi_interc_hp0/M00_AXI]
+
+# axi_interc_hpc0
+connect_bd_net [get_bd_pins axi_interc_hpc0/aclk] $clk_300M
+connect_bd_net [get_bd_pins axi_interc_hpc0/aresetn] $rstn_300M
+connect_bd_intf_net [get_bd_intf_pins axi_interc_hpc0/M00_AXI] [get_bd_intf_pins axi_reg_slice_hpc0/S_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_reg_slice_hpc0/M_AXI] [get_bd_intf_pins zynq_ultra_ps/S_AXI_HPC0_FPD]
+connect_bd_net [get_bd_pins axi_reg_slice_hpc0/aclk] $clk_300M
+connect_bd_net [get_bd_pins axi_reg_slice_hpc0/aresetn] $rstn_300M
 
 # axi_interc_hpm0
 connect_bd_net [get_bd_pins axi_interc_hpm0/aclk] $clk_300M
@@ -380,6 +443,7 @@ connect_bd_net [get_bd_pins axi_iic_0/iic2intc_irpt] [get_bd_pins xlconcat_0/In1
 connect_bd_net [get_bd_pins mipi_csi2_rx_0/csirxss_csi_irq] [get_bd_pins xlconcat_0/In2]
 connect_bd_net [get_bd_pins v_demosaic_0/interrupt] [get_bd_pins xlconcat_0/In3]
 connect_bd_net [get_bd_pins v_gamma_lut_0/interrupt] [get_bd_pins xlconcat_0/In4]
+connect_bd_net [get_bd_pins vcu_0/vcu_host_interrupt] [get_bd_pins xlconcat_0/In5]
 connect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins zynq_ultra_ps/pl_ps_irq1]
 
 # RPI I2C
@@ -446,7 +510,25 @@ connect_bd_intf_net [get_bd_intf_pins v_proc_ss_scaler/m_axis] [get_bd_intf_pins
 connect_bd_net [get_bd_pins v_frmbuf_wr_0/ap_clk] $clk_300M
 connect_bd_net [get_bd_pins v_frmbuf_wr_0/ap_rst_n] [get_bd_pins gpio_slice_frmbuf/Dout]
 connect_bd_intf_net [get_bd_intf_pins v_frmbuf_wr_0/s_axi_CTRL] [get_bd_intf_pins axi_interc_hpm0/M06_AXI]
-connect_bd_intf_net [get_bd_intf_pins v_frmbuf_wr_0/m_axi_mm_video] [get_bd_intf_pins axi_interc_hp0/S01_AXI]
+connect_bd_intf_net [get_bd_intf_pins v_frmbuf_wr_0/m_axi_mm_video] [get_bd_intf_pins axi_interc_hpc0/S00_AXI]
+
+# VCU Encoder connections
+# - VCU 50MHz PLL reference clock
+connect_bd_net $clk_50M [get_bd_pins vcu_0/pll_ref_clk]
+# - VCU control and data clocks
+connect_bd_net $clk_300M [get_bd_pins vcu_0/s_axi_lite_aclk]
+connect_bd_net $clk_300M [get_bd_pins vcu_0/m_axi_enc_aclk]
+connect_bd_net $clk_300M [get_bd_pins vcu_0/m_axi_mcu_aclk]
+# - VCU reset from GPIO
+connect_bd_net [get_bd_pins axi_gpio_rst/gpio_io_o] [get_bd_pins gpio_slice_vcu/Din]
+connect_bd_net [get_bd_pins gpio_slice_vcu/Dout] [get_bd_pins vcu_0/vcu_resetn]
+# - VCU AXI control interface to HPM0
+connect_bd_intf_net [get_bd_intf_pins vcu_0/S_AXI_LITE] [get_bd_intf_pins axi_interc_hpm0/M08_AXI]
+# - VCU encoder AXI data interfaces to HPC0
+connect_bd_intf_net [get_bd_intf_pins vcu_0/M_AXI_ENC0] [get_bd_intf_pins axi_interc_hpc0/S01_AXI]
+connect_bd_intf_net [get_bd_intf_pins vcu_0/M_AXI_ENC1] [get_bd_intf_pins axi_interc_hpc0/S02_AXI]
+# - VCU MCU interface to HP0
+connect_bd_intf_net [get_bd_intf_pins vcu_0/M_AXI_MCU] [get_bd_intf_pins axi_interc_hp0/S00_AXI]
 
 # counter_wrapper
 create_bd_port -dir O -from 7 -to 0 pmod
@@ -478,10 +560,26 @@ if {$FAN_CONTROL eq "ttc0_linux"} {
 save_bd_design [current_bd_design]
 
 # Framebuffer memory map
-assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_LOW] -force
-assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_QSPI] -force
-assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_LPS_OCM] -force
-exclude_bd_addr_seg [get_bd_addr_segs v_frmbuf_wr_0/Data_m_axi_mm_video/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
+assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_DDR_LOW] -force
+assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_QSPI] -force
+assign_bd_address -target_address_space /v_frmbuf_wr_0/Data_m_axi_mm_video [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_LPS_OCM] -force
+exclude_bd_addr_seg [get_bd_addr_segs v_frmbuf_wr_0/Data_m_axi_mm_video/SEG_zynq_ultra_ps_HPC0_DDR_HIGH]
+
+# VCU encoder memory map (to HPC0)
+assign_bd_address -target_address_space /vcu_0/EncData0 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_DDR_LOW] -force
+assign_bd_address -target_address_space /vcu_0/EncData0 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_QSPI] -force
+assign_bd_address -target_address_space /vcu_0/EncData0 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_LPS_OCM] -force
+exclude_bd_addr_seg [get_bd_addr_segs vcu_0/EncData0/SEG_zynq_ultra_ps_HPC0_DDR_HIGH]
+assign_bd_address -target_address_space /vcu_0/EncData1 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_DDR_LOW] -force
+assign_bd_address -target_address_space /vcu_0/EncData1 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_QSPI] -force
+assign_bd_address -target_address_space /vcu_0/EncData1 [get_bd_addr_segs zynq_ultra_ps/SAXIGP4/HPC0_LPS_OCM] -force
+exclude_bd_addr_seg [get_bd_addr_segs vcu_0/EncData1/SEG_zynq_ultra_ps_HPC0_DDR_HIGH]
+
+# VCU MCU memory map (to HP0)
+assign_bd_address -target_address_space /vcu_0/Code [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_DDR_LOW] -force
+assign_bd_address -target_address_space /vcu_0/Code [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_QSPI] -force
+assign_bd_address -target_address_space /vcu_0/Code [get_bd_addr_segs zynq_ultra_ps/SAXIGP2/HP0_LPS_OCM] -force
+exclude_bd_addr_seg [get_bd_addr_segs vcu_0/Code/SEG_zynq_ultra_ps_HP0_DDR_HIGH]
 
 # PS memory map: how it sees the PL AXI devices
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs mipi_csi2_rx_0/csirxss_s_axi/Reg] -force
@@ -492,6 +590,7 @@ assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs v_proc_ss_scaler/s_axi_ctrl/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_iic_0/S_AXI/Reg] -force
 assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs axi_gpio_rst/S_AXI/Reg] -force
+assign_bd_address -target_address_space /zynq_ultra_ps/Data [get_bd_addr_segs vcu_0/S_AXI_LITE/Reg] -force
 
 ##############################################################################
 # Regenerate layout and validate design

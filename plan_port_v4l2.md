@@ -179,6 +179,11 @@ dtc -@ -O dtb -o kv260_rpicamera_to_dp.dtbo kv260_rpicamera_to_dp.dtsi
   - Supported formats: RGB8, BGR8, RGBX8, BGRX8, XRGB8, XBGR8, Y_UV8_420 (NV12)
   - Data width: 8-bit per component
   - Max planes: 3 (for YUV formats)
+- **VCU (Video Codec Unit)** - Hardware H.264/H.265 encoding
+  - Encoder enabled, decoder disabled
+  - Max resolution: 3840x2160 @ 30fps
+  - Color depth / format: 8-bit / YUV 4:2:0
+  - Number of streams max: 1
 
 **Control & Support IPs:**
 - **AXI IIC** - I2C controller for camera
@@ -220,6 +225,12 @@ Video Frame Buffer Write
      │ (AXI DMA, DDR Memory)
      ▼
 Linux V4L2 Driver (/dev/video0)
+     │
+     ▼
+(Optional) VCU (Video Codec Unit)
+     │
+     ▼
+User Application (OpenCV, GStreamer, etc.). To display, file, network stream, etc.
 ```
 
 #### Interrupt Routing
@@ -234,6 +245,7 @@ All PL IPs connect **directly to the GIC** via `pl_ps_irq1` (no `axi_intc_0` cas
 | `mipi_csi2_rx_0` | csirxss_csi_irq | 106 | In2 |
 | `v_demosaic_0` | interrupt | 107 | In3 |
 | `v_gamma_lut_0` | interrupt | 108 | In4 |
+| `vcu_0` | vcu_host_interrupt | 109 | In5 |
 
 **Issues found**:
 - **AXI INTC kernel panic**: The `irq-xilinx` driver on kernel 5.15 has a known bug causing a kernel panic (`xintc_write` null-pointer write) when the INTC is loaded via DT overlay rather than at boot. **Fix**: removing INTC IP and routing directly to the GIC (MPSoC IP interface) avoids this entirely.
@@ -257,6 +269,8 @@ Under Linux this becomes a chain of I2C adapters:
 ### 1.3. Device Tree Overlay — Structure & Manual Edits
 
 The DTSI produced by Vitis covers PL clocks, AFI reset, and all IP register nodes. It requires **manual extensions** to describe the V4L2 media graph. The file in `output/artifacts/kv260_rpicamera_to_dp.dtsi` already contains all edits applied.
+
+Note: command outputs shown before do not show vcu since it was not instantiated when they were run.
 
 The following were added by hand to the auto-generated DTSI:
 
@@ -407,6 +421,8 @@ sudo dmesg | grep -E "fpga|firmware|bitstream" | tail -10
 
 #### Step 4 — Verify device tree nodes were created
 
+Note: command outputs shown before do not show vcu since it was not instantiated when they were run.
+
 ```bash
 # All five PL IP platform devices must appear
 ls /sys/bus/platform/devices/ | grep -E "a00"
@@ -426,6 +442,8 @@ i2cdetect -l
 #### Step 5 — Check driver probe messages in `dmesg`
 
 Note: some issues are expected at this time, since the ov5647 driver will need some fix.
+
+Note: command outputs shown before do not show vcu since it was not instantiated when they were run.
 
 ```bash
 sudo dmesg | grep -E "xilinx-(demosaic|gamma|video|dma)|axi-iic|pca954x|ov5647|mipi" | tail -30
@@ -460,8 +478,14 @@ Using the official Kria Ubuntu 22.04 image:
 Required tools:
 
 ```bash
+# Install Xilinx PPA and required packages for VCU
+sudo add-apt-repository ppa:ubuntu-xilinx/updates
+sudo add-apt-repository ppa:xilinx-apps/ppa
+sudo apt update
 sudo apt install -y v4l-utils yavta i2c-tools device-tree-compiler
-sudo apt install -y libdrm-xlnx-dev    # For DRM/KMS display (kmssink)
+sudo apt install -y gstreamer-xilinx1.0-tools gstreamer-xilinx1.0-plugins-good gstreamer-xilinx1.0-plugins-bad gstreamer-xilinx1.0-omx-zynqmp
+sudo apt install -y libdrm-xlnx-dev build-essential
+sudo apt install -y v4l-utils-xlnx
 ```
 
 Check kernel config:
@@ -609,7 +633,7 @@ sudo xmutil unloadapp
 sudo modprobe -r ov5647
 
 # Install by replacing ko:
-sudo cp ~/ov5647_driver_patched/ov5647.ko /lib/modules/$(uname -r)/kernel/drivers/media/i2c/ov5647.ko
+sudo cp ov5647.ko /lib/modules/$(uname -r)/kernel/drivers/media/i2c/ov5647.ko
 sudo depmod -a # It ensures the kernel's internal index points to the new file; will take a few seconds
 
 # Alternatively, install with Makefile (though this was not working well, the kernel didn't load the module):
@@ -624,13 +648,15 @@ Now the driver should be installed. Load the driver from the kv260:
 sudo xmutil unloadapp
 sudo modprobe -r ov5647
 sudo xmutil loadapp kv260_rpicamera_to_dp
-sudo modprobe ov5647
+sudo modprobe ov5647 # should have been done automatically during the previous step of loading the firmware
 sudo dmesg | tail -n 100 # Expected: ov5647 6-0036: OmniVision OV5647 camera driver probed successfully
 ```
 
 ---
 
 ### 2.4. Verify all drivers are now loaded
+
+Note: command outputs shown before do not show vcu since it was not instantiated when they were run.
 
 After loading all modules (including `ov5647`):
 
@@ -862,9 +888,21 @@ sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=4 num-buffers=5 ! video/x
 - `max-size-buffers=3` - Limits the queue size to reduce latency buildup
 - `videorate` - Drops or duplicates frames to match a requested downstream framerate
 
-**Hardware Accelerators (KV260 Specific)**:
-- `v4l2h264enc` (or `omxh264enc`) - Uses the Zynq UltraScale+ VCU (Video Codec Unit) for hardware H.264 encoding
+**Hardware Accelerators (KV260 Specific):**
+- `omxh264enc` - OpenMAX H.264 encoder using the VCU hardware
+  - `target-bitrate=6000` - Encoding bitrate in Kbps (6 Mbps for 1080p)
+  - `control-rate=low-latency` - Optimizes for minimal encoding delay
+  - `prefetch-buffer=true` - Pre-fetches frames for smoother encoding
+  - `gop-length=3` - GOP size in frames (100ms at 30fps for ultra-low latency)
+  - `b-frames=0` - Disables B-frames to reduce latency
+  - `periodicity-idr=3` - IDR frame frequency (matches GOP)
+  - `num-slices=8` - Number of slices for parallel encoding
+- `omxh265enc` - OpenMAX H.265 encoder using the VCU hardware
 - `h264parse` - Parses the encoded H.264 stream for packaging (required before muxing)
+- `rtph264pay` - Payloads H.264 frames into RTP packets for network transport
+  - `config-interval=1` - Sends SPS/PPS headers periodically
+  - `pt=96` - Payload type for H.264 in RTP
+  - `mtu=1200` - Maximum transmission unit to reduce fragmentation
 - `mp4mux` - Packages H.264 video into an MP4 container
 
 **Sinks (Outputs)**:
@@ -896,6 +934,8 @@ sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=4 num-buffers=5 ! video/x
 ### Verify media graph configuration
 
 The following **commands can be used to verify the media graph configuration**:
+
+Note: command outputs shown before do not show vcu since it was not instantiated when they were run.
 
 **Check media topology after setup_v4l2.sh**:
 
@@ -1104,49 +1144,62 @@ ls -lh test.png
 
 ## Section 4 — Stream via network (UDP/IP)
 
-**General steps**:
+### VCU Hardware-Accelerated Multicast Streaming (1080p30, ~300-400ms latency)
 
-Set up Firewall to allow connection to port 5000 on both KV260 and workstation.
-
-KV260:
-```
-sudo ufw disable
-```
-
-Workstation (Windows): 
-From cmd (admin):
-```
-New-NetFirewallRule -DisplayName "G_KriaStream" -Direction Inbound -Protocol UDP -LocalPort 5000 -Action Allow
-```
-
-Connect from workstation (Videolan VLC). From VLC:
-- Media -> Open Network
-- udp://@:5000
-
-**Stream 1080p**:
+**Prerequisites:**
 
 KV260:
+```bash
+sudo ufw disable  # Disable firewall on KV260
 ```
+
+**Setup and Stream (KV260):**
+
+```bash
+# Load hardware overlay
 sudo xmutil unloadapp
 sudo xmutil loadapp kv260_rpicamera_to_dp
-sudo ./setup_v4l2.sh 
-sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap !   "video/x-raw, width=1920, height=1080, format=BGRx" !   videoconvert ! x264enc tune=zerolatency !   mpegtsmux ! udpsink host=<HOST_IP> port=5000
+
+# Configure VCU pipeline
+sudo chmod +x sw/setup_vcu_udp.sh
+sudo ./sw/setup_vcu_udp.sh
+
+# Start multicast stream
+sudo gst-launch-1.0 -v v4l2src device=/dev/video0 io-mode=mmap ! \
+  "video/x-raw, width=1920, height=1080, format=NV12, framerate=30/1" ! \
+  omxh264enc target-bitrate=6000 control-rate=low-latency prefetch-buffer=true \
+    gop-length=3 b-frames=0 periodicity-idr=3 num-slices=8 ! \
+  "video/x-h264, profile=main, level=(string)4.2, alignment=au" ! \
+  h264parse config-interval=1 ! \
+  rtph264pay config-interval=1 pt=96 mtu=1200 ! \
+  udpsink host=224.1.1.1 port=5000 auto-multicast=true ttl-mc=1 sync=false async=false
 ```
 
-**Stream 640x480**:
+**Workstation (create `stream_multicast.sdp` or use the one available in sw/stream_multicast.sdp):**
+```sdp
+v=0
+o=- 0 0 IN IP4 224.1.1.1
+s=KV260 Multicast Stream
+c=IN IP4 224.1.1.1/1
+t=0 0
+m=video 5000 RTP/AVP 96
+a=rtpmap:96 H264/90000
+a=fmtp:96 packetization-mode=1
+```
 
-KV260:
+**Workstation (VLC - multiple clients can use same command):**
+```powershell
+# Windows
+& "C:\Program Files\VideoLAN\VLC\vlc.exe" sw\stream_multicast.sdp --network-caching=30
+# Linux
+vlc sw/stream_multicast.sdp --network-caching=30
 ```
-sudo xmutil unloadapp
-sudo xmutil loadapp kv260_rpicamera_to_dp
-sudo ./setup_v4l2.sh 
-sudo media-ctl -V "\"a0080000.v_proc_ss\":1 [fmt:RBG888_1X24/640x480 field:none]"
-sudo gst-launch-1.0 v4l2src device=/dev/video0 io-mode=mmap ! \
-  "video/x-raw, width=640, height=480, format=BGRx" ! \
-  videoconvert ! \
-  x264enc tune=zerolatency speed-preset=ultrafast bitrate=2000 ! \
-  mpegtsmux ! udpsink host=<HOST_IP> port=5000
-```
+
+**Notes:**
+- Multicast allows unlimited simultaneous clients with zero KV260 performance impact
+- No firewall configuration needed (uses multicast group 224.1.1.1)
+- Expected latency: 300-400ms end-to-end
+- GOP=3 frames (100ms), 8 slices for parallel encoding
 
 ## Section 5 - Future work
 
@@ -1167,4 +1220,4 @@ Improvement 2. Add a direct path from PL to DisplayPort.
   kmssink driver-name=xlnx plane-id=39 sync=false
   ```
 
-Improvement 3. Add VCU encoder to PL to enable hardware-accelerated video encoding and improve streaming performance.
+(SOLVED) Improvement 3. Add VCU encoder to PL to enable hardware-accelerated video encoding and improve streaming performance.
