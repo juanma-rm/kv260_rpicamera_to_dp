@@ -906,8 +906,9 @@ class VivadoBuilder:
             elif self.DEV_FLOW == "vitis_standalone":
                 return self.build_target("xsa_non_extensible", _directories_created=True)
             elif self.DEV_FLOW == "vivado_accelerator":
-                if not self.build_target("bitbin", _directories_created=True): return False
-                if not self.build_target("xsa_non_extensible", _directories_created=True): return False
+                if not self.build_target("bit", _directories_created=True): return False
+                if not self.generate_bitbin(): return False
+                if not self.generate_xsa_non_extensible(): return False
                 if not self.build_target("dtbo", _directories_created=True): return False
                 return self.copy_shell_json()
             elif self.DEV_FLOW == "vitis_platform":
